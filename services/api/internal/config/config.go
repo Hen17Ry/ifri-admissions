@@ -7,6 +7,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type Config struct {
@@ -15,6 +16,7 @@ type Config struct {
 	RedisHost, RedisPort, RedisPassword                                                     string
 	RedisTLS                                                                                bool
 	MinioEndpoint                                                                           string
+	DraftSessionTTL                                                                         time.Duration
 }
 
 func Load() (Config, error) { return load(os.Getenv) }
@@ -77,6 +79,16 @@ func load(get func(string) string) (Config, error) {
 			}
 		}
 	}
+	ttl := get("DRAFT_SESSION_TTL_SECONDS")
+	if ttl == "" && c.Environment != "production" {
+		ttl = "604800"
+	}
+	seconds, err := strconv.Atoi(ttl)
+	if err != nil || seconds < 300 || seconds > 2592000 {
+		return c, fmt.Errorf("DRAFT_SESSION_TTL_SECONDS must be between 300 and 2592000")
+	}
+	c.DraftSessionTTL = time.Duration(seconds) * time.Second
+
 	return c, nil
 }
 

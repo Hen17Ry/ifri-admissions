@@ -10,6 +10,7 @@ func validEnv() map[string]string {
 }
 func TestConfig(t *testing.T) {
 	for _, tc := range []struct{ name, key, value string }{
+		{"invalid session duration", "DRAFT_SESSION_TTL_SECONDS", "0"},
 		{"invalid listen host", "API_HOST", "*"},
 		{"missing secret", "POSTGRES_PASSWORD", ""}, {"invalid port", "API_PORT", "0"}, {"wildcard CORS", "FRONTEND_ORIGIN", "*"}, {"path CORS", "FRONTEND_ORIGIN", "http://localhost/path"}, {"invalid TLS", "REDIS_TLS", "yes"}, {"unknown environment", "APP_ENV", "prod"}, {"insecure production", "APP_ENV", "production"},
 	} {

@@ -84,3 +84,16 @@ func TestReadinessRespectsCanceledRequest(t *testing.T) {
 		t.Fatalf("got %d", rec.Code)
 	}
 }
+
+func TestDraftCORSPreflight(t *testing.T) {
+	handler := New("http://localhost:5173", nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	r := httptest.NewRequest(http.MethodOptions, "/api/v1/applications/drafts/current/profile", nil)
+	r.Header.Set("Origin", "http://localhost:5173")
+	r.Header.Set("Access-Control-Request-Method", "PATCH")
+	r.Header.Set("Access-Control-Request-Headers", "Content-Type")
+	w := httptest.NewRecorder()
+	handler.ServeHTTP(w, r)
+	if w.Code != 204 || w.Header().Get("Access-Control-Allow-Credentials") != "true" || w.Header().Get("Access-Control-Allow-Origin") != "http://localhost:5173" {
+		t.Fatal("draft credentials CORS preflight failed")
+	}
+}

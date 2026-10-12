@@ -208,3 +208,27 @@ Invoke-RestMethod 'http://localhost:18080/api/v1/expected-subjects?campaign=DEV_
 ```
 
 Toutes les routes sont GET ; aucune authentification, écriture administrative, candidature ou extraction documentaire. Les notes et coefficients restent absents des règles. Aucun écran métier ajouté.
+
+## Phase 3 — brouillon candidat
+
+**Validations techniques réussies** : migration, intégration PostgreSQL, smoke HTTP avec session réelle et interface fonctionnelle confirmée par l’utilisateur. Contrôles visuels détaillés aux quatre largeurs, clavier/zoom et CI non confirmés ; voir le rapport.
+
+Route : **http://localhost:5173/candidature** après démarrage Vite. Quatre étapes seulement, brouillon PostgreSQL restauré par cookie HttpOnly. Aucun document ou bouton de soumission définitive. Contrat, session, autosave et limites : [CANDIDATE_FLOW.md](docs/CANDIDATE_FLOW.md) ; preuves : [PHASE3_VALIDATION.md](docs/PHASE3_VALIDATION.md).
+
+Durée de session : DRAFT_SESSION_TTL_SECONDS (défaut local 604800 secondes, 7 jours ; valeur explicite obligatoire en production). Le proxy Vite conserve les cookies et l’origine configurée. Ouvrir localhost plutôt qu’une autre origine ; aucune donnée personnelle ou session dans localStorage.
+
+Depuis la racine, pour la migration 00003 et la validation réelle :
+
+```powershell
+docker compose up -d --build --wait --wait-timeout 240 api
+docker compose exec -T api db up
+docker compose --profile test run --build --rm references-tests
+uv run --project services/ocr --locked --no-sync python infra/scripts/smoke.py
+uv run --project services/ocr --locked --no-sync python infra/scripts/references_smoke.py
+uv run --project services/ocr --locked --no-sync python infra/scripts/drafts_smoke.py
+npm --prefix apps/web run dev
+```
+
+Le profil test exécute désormais les tests PostgreSQL des référentiels et des brouillons dans des schémas isolés. Le dernier smoke utilise un profil synthétique, contrôle le cookie sans afficher son secret, la normalisation et BAC_E/GL, DT_DWM/GL, DT_EAP/GL refusé et l’invalidation GL ; il conserve un brouillon local de test sans soumission ni suppression.
+
+Le contrôle navigateur réel reste distinct des tests Vitest : vérifier restauration après recharge, retour/modification, erreurs, clavier, zoom 200 % et largeurs 375/768/1024/1440. Ne jamais interpréter un build ou un test jsdom comme validation visuelle.

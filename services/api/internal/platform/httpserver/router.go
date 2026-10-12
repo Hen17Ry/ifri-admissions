@@ -63,21 +63,30 @@ func New(origin string, checks map[string]Check, logger *slog.Logger, register .
 				return
 			}
 			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			if r.Method == http.MethodOptions {
 				w.Header().Add("Vary", "Access-Control-Request-Method")
 				w.Header().Add("Vary", "Access-Control-Request-Headers")
-				if r.Header.Get("Access-Control-Request-Method") != http.MethodGet || (r.URL.Path != "/health" && r.URL.Path != "/ready" && !strings.HasPrefix(r.URL.Path, "/api/v1/")) {
+				method := r.Header.Get("Access-Control-Request-Method")
+				draftMutation := method == http.MethodPost && r.URL.Path == "/api/v1/applications/drafts"
+				if method == http.MethodPatch {
+					switch r.URL.Path {
+					case "/api/v1/applications/drafts/current/profile", "/api/v1/applications/drafts/current/academic-background", "/api/v1/applications/drafts/current/program":
+						draftMutation = true
+					}
+				}
+				if (method != http.MethodGet && !draftMutation) || (r.URL.Path != "/health" && r.URL.Path != "/ready" && !strings.HasPrefix(r.URL.Path, "/api/v1/")) {
 					w.WriteHeader(http.StatusMethodNotAllowed)
 					return
 				}
-				w.Header().Set("Access-Control-Allow-Methods", "GET")
+				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH")
 				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
 		}
 		mux.ServeHTTP(w, r)
-		logger.Info("http request", "method", r.Method, "path", r.URL.Path, "duration_ms", time.Since(started).Milliseconds())
+		logger.Info("http request", "method", r.Method, "route", r.Pattern, "duration_ms", time.Since(started).Milliseconds())
 	})
 }
 func respond(w http.ResponseWriter, code int, value any) {

@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5"
-	"github.com/jackc/pgx/v5/pgxpool"
 )
 
 type Repository interface {
@@ -18,9 +17,13 @@ type Repository interface {
 	EligibleQualifications(context.Context, string, string) ([]Qualification, error)
 	Rule(context.Context, string, string, string) (Rule, error)
 }
-type PostgresRepository struct{ pool *pgxpool.Pool }
+type Queryer interface {
+	Query(context.Context, string, ...any) (pgx.Rows, error)
+	QueryRow(context.Context, string, ...any) pgx.Row
+}
+type PostgresRepository struct{ pool Queryer }
 
-func NewRepository(pool *pgxpool.Pool) *PostgresRepository { return &PostgresRepository{pool} }
+func NewRepository(pool Queryer) *PostgresRepository { return &PostgresRepository{pool} }
 func (r *PostgresRepository) Campaigns(ctx context.Context, code string, now time.Time) ([]Campaign, error) {
 	rows, err := r.pool.Query(ctx, `SELECT id::text,code,name,academic_year,starts_at,ends_at,status FROM admission_campaigns WHERE ($1 <> '' AND code=$1) OR ($1='' AND status='OPEN' AND starts_at <= $2 AND ends_at > $2) ORDER BY code LIMIT 2`, code, now)
 	if err != nil {

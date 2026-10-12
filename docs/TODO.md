@@ -40,6 +40,17 @@ Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les cri
 - [x] Exécuter go test ./... et go vet ./... avec toutes les dépendances.
 - [x] Appliquer les deux migrations réelles, seed deux fois, tests PostgreSQL, stack healthy et smoke HTTP phase 2.
 
+## Phase 3 — Parcours brouillon : validations techniques terminées
+- [x] Ajouter Candidate/Application/DraftSession, migration 00003 et contraintes sans documents.
+- [x] Ajouter endpoints cookie-authentifiés, Origin/JSON, normalisation et invalidation de filière.
+- [x] Utiliser UI UX Pro Max, recherches adaptées, override candidat sans modifier MASTER.
+- [x] Ajouter route candidature, quatre étapes, état serveur Pinia et autosave sérialisé.
+- [x] Ajouter tests Go/HTTP et PostgreSQL isolés, tests Vue et smoke de parcours réel.
+- [x] Finaliser contrôles techniques locaux et rapport PHASE3_VALIDATION (validations hôte encore NON TESTÉES).
+- [x] Appliquer migration et exécuter intégration PostgreSQL + parcours HTTP réel sur l’hôte.
+- [x] Confirmer le fonctionnement de l’interface dans le navigateur hôte (observation utilisateur).
+- [ ] Confirmer les contrôles détaillés responsive 375/768/1024/1440, clavier/zoom/erreurs.
+
 ## 2 — Arbitrages requis avant fonctions dépendantes
 - [ ] Obtenir grille officielle complète : admissibilité et matières par chaque série/filière, au-delà de la matrice phase 2 fournie (C/D/E exactes, SI et IA désormais précisées).
 - [ ] Confirmer un dossier/une filière par candidat/campagne et échelle des notes.

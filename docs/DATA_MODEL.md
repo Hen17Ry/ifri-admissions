@@ -97,3 +97,11 @@ erDiagram
 ```
 
 Toutes les autres entités restent conceptuelles et ne possèdent aucune table ni endpoint dans cette phase.
+
+## Schéma ajouté en phase 3
+
+Migration 00003, migrations 00001/00002 inchangées. `candidates` : UUID, last_name/first_names/email/phone, created_at/updated_at ; chaînes vides autorisées pour brouillon incomplet, longueurs bornées, email trim/lower, téléphone vide ou syntaxe internationale. Email non unique : la possession d’un email ne donne pas un droit d’accès, aucune fusion automatique de personnes.
+
+`applications` : UUID, candidate_id, campaign_id, campaign_program_id nullable, origin_qualification_id nullable, graduation_year nullable, state CHECK DRAFT/SUBMITTED/CANCELLED (seul DRAFT utilisable via API), version positive, timestamps. Unique candidat/campagne ; FK composite offre/campagne interdit croisements d’années ; filière nécessite qualification ; année CHECK 1900–9999, borne année courante validée en Go. Index campagne et index unique candidat/campagne ; aucun numéro officiel.
+
+`application_draft_sessions` : UUID, application_id, secret_hash bytea 32 octets unique, expires_at, revoked_at nullable, created_at ; expiration après création, index application pour révocation future. Aucun secret brut en base. Autorisation par session, pas par application UUID. Profil, qualification et filière modifiables uniquement pour DRAFT/campagne ouverte dans des transactions verrouillant application/session ; contrôle de concurrence par version. Enregistrement de notes/document/OCR hors périmètre.

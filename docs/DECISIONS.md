@@ -114,3 +114,16 @@ Statut : retenue, disponibilité finale à vérifier sur l’hôte. La liste des
 | 037 | Retenue | Tests PostgreSQL via profil Compose test et schéma temporaire propre à chaque exécution | Pas de port PostgreSQL publié, aucune base locale effacée ; tests opt-in -tags=integration ; HTTP réel via script séparé |
 
 Source de la matrice : instruction utilisateur phase 2 du 12 octobre 2026 ; voir ADMISSION_RULES. Aucun quota ni communiqué officiel inventé. Les validations réelles et celles bloquées sont suivies dans PHASE2_VALIDATION.
+
+## Phase 3 — décisions du 2026-10-12
+
+| ADR | Statut | Décision | Conséquences |
+|---|---|---|---|
+| 038 | Retenue | Brouillon anonyme avec cookie opaque 256 bits, hash SHA-256, expiration absolue configurable | HttpOnly/SameSite=Lax, Secure production, Path limité ; aucun secret localStorage, révocation DB et aucun accès UUID public |
+| 039 | Retenue | Origin obligatoire exactement configuré + JSON, CORS credentials explicites | Pas de token CSRF supplémentaire pour ce périmètre ; refus des mutations sans Origin, SameSite complémentaire ; sources OWASP dans CANDIDATE_FLOW |
+| 040 | Retenue | Candidate distinct d’Application, DRAFT uniquement, profil incomplet autorisé vide | Pas d’identité déduite de l’email, pas de numéro final, aucun statut OCR/document mélangé ; FK composite campagne/offre |
+| 041 | Retenue | Autosave 800 ms sérialisé et validation d’étape attendue, version optimiste | Backend source de vérité ; conflit 409, perte de réseau/expiration affichées, avertissement pour modifications non acquittées |
+| 042 | Retenue | Qualification modifiée : choix filière revérifié et supprimé si incompatible dans transaction | Cas DT_DWM + GL → DT_EAP explicitement testé ; règles exclusivement PostgreSQL |
+| 043 | Retenue | UI UX Pro Max actif, master inchangé, override candidate-application ; primitives natives Vue | Pas de dépendance React ni combobox/validation framework ajouté pour ce formulaire limité ; règles validation client centralisées et serveur obligatoire |
+| 044 | Retenue | Téléphone normalisé international, validation syntaxique sans lib de numéros | Formats étrangers permis ; pas de preuve de validité/possession du numéro. Année jusqu’à année UTC courante |
+| 045 | Retenue pour local | Création limitée par IP RemoteAddr, 5/min, mémoire bornée | Protection minimale sans confiance proxy ; rate limiting distribué à traiter lors du déploiement |

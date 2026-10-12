@@ -128,3 +128,11 @@ Versions directes exactes inscrites dans les manifests et images de phase 1 ; ta
 `cmd/db` gère Up/Down Goose et seed développement explicites, avec budget 60 s. Le binaire et les SQL sont embarqués dans l’image API. Le profil Compose `test` ajoute uniquement un runner Go ponctuel, sur réseau interne, utilisant PostgreSQL existant mais un schéma temporaire isolé. Ce n’est pas un service métier supplémentaire.
 
 Matrice, version de grille, offres et quotas sont lus en PostgreSQL ; aucune matrice Go et aucune déduction depuis la série. Les tests peuvent contenir des attentes explicites indépendantes du seed. Contrat public dans ADMISSION_RULES, vérifié par tests HTTP et script references_smoke.py. Aucun store/page Vue métier ajouté.
+
+## Parcours brouillon — phase 3
+
+Module drafts : handlers HTTP stricts + normalisation + repository transactionnel pgx, sans SQL dans le transport. Les requêtes du module references sont réutilisables via pool ou transaction (interface Queryer), ce qui permet de vérifier les règles avant la mise à jour atomique. Verrous application/session et campagne, version optimiste et invalidation du programme après changement d’origine. Migration explicite 00003 via runner db existant.
+
+Vue : route candidature lazy, CandidateLayout, composants natifs accessibles, client API central avec credentials et erreurs sûres, Pinia contenant uniquement état serveur et chargement, état de saisie transitoire dans la page. Pas de storage navigateur de PII/secret. Autosave sérialisé et confirmation d’étape après acquittement. Vite conserve le proxy de phase 2.
+
+Cookie opaque court périmètre, hash PostgreSQL, durée configurable ; Origin obligatoire pour mutations JSON, CORS credentials pour origine unique. Logs de route nommée au lieu d’URL libre. Lire CANDIDATE_FLOW pour contrat et limites de la session anonyme. Aucun module documentaire ajouté.

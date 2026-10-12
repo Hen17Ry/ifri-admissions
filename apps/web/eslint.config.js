@@ -10,7 +10,16 @@ export default [
   ...vue.configs['flat/recommended'],
   {
     files: ['**/*.vue'],
-    languageOptions: { parserOptions: { parser: ts.parser } },
+    languageOptions: {
+      parserOptions: { parser: ts.parser },
+      globals: {
+        window: 'readonly',
+        document: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        BeforeUnloadEvent: 'readonly',
+      },
+    },
   },
   prettier,
 ]

@@ -1,7 +1,7 @@
 # IFRI Admissions — instructions aux agents
 
 ## Périmètre et sources de vérité
-Plateforme de candidature de l’Institut de Formation et de Recherche en Informatique (IFRI), Université d’Abomey-Calavi. Deux espaces : candidat et administration. Développement progressif, par petites phases testables. Le bootstrap est validé ; la phase 2 ajoute uniquement les référentiels et leur API GET, sans candidats/candidatures/documents ni moteur OCR.
+Plateforme de candidature de l’Institut de Formation et de Recherche en Informatique (IFRI), Université d’Abomey-Calavi. Deux espaces : candidat et administration. Développement progressif, par petites phases testables. Le bootstrap et les référentiels de phase 2 sont validés. La phase 3 ajoute uniquement le parcours candidat en brouillon, avec session sécurisée et persistance, sans documents/OCR/soumission finale.
 Lire `docs/PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md` et `docs/DECISIONS.md` avant de modifier le projet. Suivre `docs/ROADMAP.md` et `docs/TODO.md`. Les instructions explicites de l’utilisateur priment ; ne commencer aucune phase suivante sans son accord.
 
 ## Invariants métier non négociables
@@ -40,3 +40,6 @@ Inspecter l’existant et les instructions locales ; limiter les changements à 
 
 ## Référentiels de phase 2
 Migrations Goose explicites, seed canonique séparé de DEV_LOCAL non officiel, seed jamais en production. Consulter `docs/ADMISSION_RULES.md` pour matrice et contrat HTTP. Qualification canonique OriginQualification ; quotas nullable par CampaignProgram. Grilles versionnées par offre, publiées immuables ; règles inconnues non autorisées sans inventer de refus officiel. Ne pas ajouter de coefficients. Tests PostgreSQL isolés via profil Compose test ; aucune suppression de volume local pour tester.
+
+## Brouillons de phase 3
+Lire CANDIDATE_FLOW et PHASE3_VALIDATION. Autorisation par cookie opaque hashé, jamais UUID fourni ; Origin obligatoire sur mutations JSON ; secrets/PII absents des logs. Application DRAFT seule éditable, profil incomplet permis en brouillon ; aucune soumission ni numéro final. Qualification/filière contrôlées avec référentiels dans une transaction ; invalidation du choix incompatible. Autosave sérialisé et version optimiste. UI UX master inchangé, override candidate-application pour les quatre étapes.

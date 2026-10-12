@@ -3,5 +3,12 @@ import TechnicalPage from '@/pages/TechnicalPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(import.meta.env.BASE_URL),
-  routes: [{ path: '/', name: 'technical', component: TechnicalPage }],
+  routes: [
+    { path: '/', name: 'technical', component: TechnicalPage },
+    {
+      path: '/candidature',
+      name: 'candidate-application',
+      component: () => import('@/pages/CandidateApplicationPage.vue'),
+    },
+  ],
 })
