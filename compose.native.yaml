@@ -1,0 +1,11 @@
+# Optional database access for an API/worker running outside Docker.
+# Set POSTGRES_PORT and REDIS_PORT to free host ports in .env before enabling.
+services:
+  postgres:
+    networks: [internal, local]
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:?Set a free POSTGRES_PORT for native development}:5432"
+  redis:
+    networks: [internal, local]
+    ports:
+      - "127.0.0.1:${REDIS_PORT:?Set a free REDIS_PORT for native development}:6379"

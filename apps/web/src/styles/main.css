@@ -1,0 +1,108 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-primary: #1e3a5f;
+  --color-on-primary: #ffffff;
+  --color-background: #f8fafc;
+  --color-foreground: #0f172a;
+  --color-surface: #ffffff;
+  --color-muted: #e9eef5;
+  --color-on-muted: #475569;
+  --color-divider: #cbd5e1;
+  --color-success: #15803d;
+  --font-sans: 'Source Sans 3', system-ui, sans-serif;
+  --font-heading: 'Lexend', system-ui, sans-serif;
+}
+
+body {
+  margin: 0;
+  background: var(--color-background);
+  color: var(--color-foreground);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  line-height: 1.5;
+}
+h1,
+h2,
+.institution {
+  font-family: var(--font-heading);
+}
+.institution {
+  color: var(--color-primary);
+  font-size: 24px;
+  font-weight: 700;
+}
+.institution span {
+  display: block;
+  font-family: var(--font-sans);
+  color: var(--color-on-muted);
+  font-size: 16px;
+  font-weight: 400;
+}
+.panel {
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+}
+.muted {
+  color: var(--color-on-muted);
+}
+.success,
+.frontend-icon {
+  color: var(--color-success);
+}
+.frontend-icon {
+  flex-shrink: 0;
+}
+.service-row {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--color-divider);
+  padding-bottom: 12px;
+}
+.primary-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 8px 16px;
+  border-radius: 6px;
+  background: var(--color-primary);
+  color: var(--color-on-primary);
+  cursor: pointer;
+  transition: opacity 150ms;
+}
+.primary-button:hover {
+  opacity: 0.9;
+}
+.primary-button:disabled {
+  cursor: wait;
+  opacity: 0.75;
+}
+:focus-visible {
+  outline: 3px solid var(--color-primary);
+  outline-offset: 2px;
+}
+.skip-link {
+  position: absolute;
+  top: 8px;
+  left: 16px;
+  padding: 12px;
+  background: var(--color-surface);
+  color: var(--color-primary);
+  transform: translateY(-200%);
+}
+.skip-link:focus {
+  transform: translateY(0);
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition: none !important;
+    animation: none !important;
+  }
+}

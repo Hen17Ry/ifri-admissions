@@ -1,0 +1,179 @@
+# IFRI Admissions
+
+Bootstrap technique de la plateforme d’admissions IFRI/UAC. Cette phase fournit une page Vue, une API technique Go et un worker Python sans OCR, avec PostgreSQL, Redis et MinIO privés en développement local. Aucun parcours candidat ou administratif n’est développé.
+
+**Bootstrap technique validé** : dépendances et locks, contrôles frontend/Go/Python, stack Docker et smoke check réels, persistance du volume PostgreSQL, panne/reprise de readiness, arrêt propre du worker et appel Vue → API confirmé dans le navigateur. Contrôles visuels approfondis et CI GitHub non exécutés. Voir [le rapport exact](docs/BOOTSTRAP_VALIDATION.md).
+
+## Prérequis
+
+- Docker Desktop avec moteur Linux (WSL2 sur Windows), Compose ≥ 2.20 ; `docker info` doit fonctionner.
+- Node.js 24 LTS, version de référence 24.18.1 (`.node-version`), npm 11.16.0 pour le frontend. Node 24 ≥ 24.15 requis par les dépendances retenues.
+- Pour lancer/tester les services hors Docker : Go 1.27.2, Python 3.14 (référence Docker 3.14.8), uv 0.13.0. Python 3.15 récemment publié n’est pas retenu pour ce worker.
+- Accès aux registres npm, PyPI, Go et Docker. La première construction MinIO compile les sources et peut prendre plusieurs minutes.
+
+Les commandes ci-dessous sont utilisables dans PowerShell. Sur Linux/macOS, remplacer seulement `Copy-Item` par `cp` et éventuellement `python` par `python3`. Aucun script Bash n’est nécessaire pour démarrer ou vérifier le projet.
+
+## Organisation
+
+```text
+apps/web/                 Vue 3, TypeScript, Vite, Router, Pinia et Tailwind
+services/api/             Go : configuration, PostgreSQL, HTTP et état du stockage
+services/ocr/             Package Python, bootstrap Redis et heartbeat interne
+infra/minio/              Images MinIO et mc construites depuis des releases sources
+infra/nginx/              Documentation ; configuration de déploiement différée
+infra/scripts/            Lanceur natif et smoke check portables en Python
+compose.yaml              Infrastructure locale, réseau interne et volumes nommés
+docs/                     Spécifications, ADR, roadmap et validation
+design-system/            Source de vérité visuelle existante
+```
+
+L’API est la source future des décisions métier. Le worker ne dispose ni d’une API publique ni d’un accès PostgreSQL. Il ne consomme aucune queue : il vérifie Redis et maintient un heartbeat uniquement. Nginx n’intervient pas dans ce bootstrap.
+
+## Configuration
+
+Depuis la racine :
+
+```powershell
+Copy-Item .env.example .env
+```
+
+Remplacer les trois mots de passe `replace-dev-*` par des valeurs locales propres. Ces exemples sont publics, réservés au développement. `.env` est ignoré ; aucun secret ne doit porter un préfixe `VITE_`. Dans ce bootstrap, utiliser des valeurs simples sans commentaires en fin de ligne ; les scripts acceptent `KEY=value` et des valeurs entièrement citées.
+
+`.env.example` utilise des adresses loopback pour les exécutions natives, dont `API_HOST=127.0.0.1` ; Compose impose `API_HOST=0.0.0.0` à l’intérieur du conteneur et publie seulement sur le loopback hôte. Compose remplace les hôtes par `postgres`, `redis` et `minio`, et conserve leurs ports internes standards. API_PORT et MINIO_API_PORT/MINIO_CONSOLE_PORT configurent les publications hôte. PostgreSQL et Redis restent privés dans Docker par défaut ; leurs variables HOST/PORT servent aux exécutions natives et à l’override optionnel. Aligner MINIO_ENDPOINT sur MINIO_API_PORT pour le smoke check et l’API native. L’API en conteneur reçoit automatiquement `http://minio:9000`. Vite lit uniquement `API_PORT` du `.env` racine pour son proxy technique.
+
+`FRONTEND_ORIGIN` vaut `http://localhost:5173`. Toute autre origine est refusée par l’API ; aucune origine `*`. Le serveur Vite écoute uniquement le loopback. Ouvrir l’URL documentée ci-dessous.
+
+Ce Compose est **local**, pas une configuration production. L’API refuse notamment HTTP pour ses origines/endpoints en production, PostgreSQL sans `verify-full`, Redis sans TLS et les mots de passe exemples. TLS, comptes de service S3 limités, authentification et déploiement sécurisé seront configurés dans les phases prévues. Seul l’initialiseur MinIO reçoit les credentials root ; l’API ne reçoit aucun credential S3 tant qu’elle ne fait pas d’opération documentaire.
+
+## Démarrage habituel
+
+```powershell
+docker compose config --quiet
+docker compose up -d --build --wait --wait-timeout 240
+docker compose ps --all
+python infra/scripts/smoke.py
+```
+
+Le script exige les cinq services en état `healthy`, l’initialiseur MinIO terminé sans erreur, un PING Redis authentifié donnant PONG, une connexion PostgreSQL à la base/utilisateur configurés, `/health` et `/ready` à `ok`, CORS autorisant seulement l’origine configurée et le refus de l’accès anonyme au bucket. Un échec retourne un code non nul. Il ne suffit pas de voir un conteneur `running`.
+
+Dans un autre terminal, depuis la racine :
+
+```powershell
+Set-Location apps/web
+npm install
+npm run dev
+```
+
+Ouvrir **http://localhost:5173**. La page vérifie réellement l’API et ses trois dépendances. Elle affiche une indisponibilité plutôt que de supposer qu’elles fonctionnent. Le worker se vérifie avec Compose ; aucun état worker fictif n’est affiché.
+
+`apps/web/package-lock.json` a été généré par npm sur l’hôte et vérifié : utiliser désormais `npm ci` pour les installations frontend reproductibles. `services/ocr/uv.lock` a également été généré par uv sur l’hôte et vérifié ; utiliser `uv sync --locked` pour les installations Python suivantes. Aucun lockfile fabriqué manuellement.
+
+## API et worker hors Docker
+
+Éviter de démarrer une seconde API sur le même port ou deux workers partageant le même heartbeat local. Pour les exécutions natives, choisir des ports hôte libres dans `.env` (`POSTGRES_PORT` et `REDIS_PORT`), puis activer explicitement `compose.native.yaml`. La stack habituelle ne publie ni PostgreSQL ni Redis. Arrêter les services applicatifs Docker avant de lancer leurs équivalents natifs :
+
+```powershell
+docker compose -f compose.yaml -f compose.native.yaml up -d postgres redis minio minio-init
+docker compose stop api ocr-worker
+python infra/scripts/dev.py api
+```
+
+Le lanceur charge le `.env` racine, laisse les variables déjà exportées prioritaires et exécute Go depuis `services/api`. Équivalent avec variables déjà présentes : `go run -buildvcs=false ./cmd/api` depuis `services/api`. Le drapeau permet aussi de travailler avant l’initialisation Git.
+
+Pour le worker, dans un autre terminal :
+
+```powershell
+Set-Location services/ocr
+uv sync --locked
+Set-Location ../..
+python infra/scripts/dev.py worker
+```
+
+Le worker échoue si la configuration ou Redis sont invalides, écrit des logs JSON et s’arrête proprement avec Ctrl+C. Son healthcheck lit un heartbeat temporaire, renouvelé seulement après un PING Redis réussi ; un heartbeat périmé ne vaut pas « prêt ». Aucune donnée documentaire n’est traitée.
+
+## Health checks et ports
+
+| Composant | Accès local | Vérification |
+|---|---|---|
+| Frontend | 5173 | Page technique dans le navigateur |
+| API | 18080 (8080 interne) | `GET /health` et `GET /ready` |
+| PostgreSQL | Aucun port hôte par défaut ; 5432 interne | `pg_isready` en conteneur ; PING pgx via `/ready` |
+| Redis | Aucun port hôte par défaut ; 6379 interne | PING authentifié en conteneur et via `/ready` |
+| MinIO API | 19000 (9000 interne) | `/minio/health/ready` |
+| MinIO Console | 19001 (9001 interne) | Console locale, credentials de votre `.env` |
+| Worker | Aucun port | `python -m ifri_ocr.worker healthcheck` en conteneur |
+| minio-init | Aucun port | Sortie 0 et bucket privé |
+
+Toutes les publications Docker sont liées à `127.0.0.1`. PostgreSQL, Redis et le worker ne sont pas publiés dans la stack habituelle. Les services partagent un réseau Docker `internal: true`. API et MinIO rejoignent aussi le bridge `local`, nécessaire pour publier leurs ports sur le loopback hôte ; PostgreSQL, Redis, worker et initialiseur restent uniquement sur le réseau interne. L’override `compose.native.yaml` ajoute à PostgreSQL et Redis des publications loopback et le bridge local, uniquement si demandé. Les volumes `postgres-data`, `redis-data`, `minio-data` persistent après `down`.
+
+```powershell
+Invoke-RestMethod http://localhost:18080/health
+Invoke-RestMethod http://localhost:18080/ready
+docker compose exec ocr-worker python -m ifri_ocr.worker healthcheck
+```
+
+`/health` retourne 200 si l’API répond, indépendamment des dépendances. `/ready` effectue pgx Ping, Redis PING et contrôle HTTP MinIO avec délai borné : 200 si tous disponibles, 503 sinon. Le corps indique seulement `ok`/`unavailable`, jamais mots de passe ou détails de connexion. L’initialisation du bucket est vérifiée au démarrage par la dépendance Compose et par le smoke check ; `/ready` ne teste pas des permissions d’upload encore inexistantes.
+
+## Tests et qualité
+
+Frontend, depuis `apps/web` après installation :
+
+```powershell
+npm run build
+npm run typecheck
+npm run lint
+npm run test
+npm run format:check
+# Correction de formatage si nécessaire :
+npm run format
+```
+
+API, depuis `services/api` :
+
+```powershell
+gofmt -l .
+go vet ./...
+go test ./...
+go build -buildvcs=false ./cmd/api
+```
+
+`gofmt -l .` doit rester vide ; `gofmt -w .` applique les corrections. Les tests vérifient liveness/readiness, CORS et les refus de configuration sans serveur métier. Aucune migration de table métier n’est ajoutée. Goose est choisi pour les migrations futures ; voir `migrations/README.md`.
+
+Worker, depuis `services/ocr` :
+
+```powershell
+uv sync --locked
+uv run --no-sync pytest
+uv run --no-sync ruff check .
+uv run --no-sync ruff format --check .
+```
+
+Le projet Python possède un `pyproject.toml`, une `.venv` ignorée et des versions exactes, sans moteur OCR. Les tests couvrent configuration, PING initial, expiration du heartbeat et contexte des logs.
+
+La CI minimale dans `.github/workflows/checks.yml` reprend les contrôles des trois stacks et un smoke check Compose. Elle ne publie rien. Elle n’a pas été exécutée sur GitHub dans cette session ; les installations y nécessitent les registres réseau.
+
+## Commandes utiles et nettoyage
+
+```powershell
+docker compose logs --tail 100 api ocr-worker
+docker compose logs -f api
+docker compose restart api
+docker compose up -d --build api ocr-worker
+docker compose down
+```
+
+`down` conserve les données. Pour **effacer toutes les données locales** et repartir de zéro, seulement si souhaité :
+
+```powershell
+docker compose down --volumes --remove-orphans
+```
+
+Changer `POSTGRES_PASSWORD` dans `.env` ne change pas le mot de passe d’une base déjà initialisée : modifier le rôle SQL ou recréer volontairement le volume local. Ne pas utiliser la commande destructive pour une base à conserver.
+
+## UI et sécurité du bootstrap
+
+Master : `design-system/ifri-admissions/MASTER.md`. Page technique sobre avec tokens sémantiques, labels textuels de disponibilité, focus visible, lien d’évitement et reduced-motion. Fontsource livre Lexend et Source Sans 3 localement via le bundle, sous licence OFL-1.1 ; aucune requête Google Fonts. Les assets sont inclus dans le build validé ; leur rendu détaillé et les contrôles visuels aux quatre largeurs restent à vérifier.
+
+Les aliases Vite/TypeScript `@/*` sont préparés. shadcn-vue/Reka seront ajoutés à la demande d’un composant, avec leurs règles Vue/Tailwind compatibles et le master existant ; aucun composant ou package React n’est introduit. Les dossiers de fonctionnalités/modules ne seront créés qu’à leur première utilisation.
+
+MinIO Community et mc sont archivés et distribués en sources : les Dockerfiles fixent leurs releases et les compilent. Cette solution est limitée au développement demandé ; la maintenance, les licences et le choix S3 de production devront être revus avant déploiement. Les buckets sont privés, l’initialiseur applique `anonymous set none`, et le smoke check teste le refus anonyme.
