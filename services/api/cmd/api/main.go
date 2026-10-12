@@ -8,16 +8,19 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"ifri-admissions/services/api/internal/config"
+	"ifri-admissions/services/api/internal/modules/documents"
 	"ifri-admissions/services/api/internal/modules/drafts"
 	"ifri-admissions/services/api/internal/modules/references"
 	"ifri-admissions/services/api/internal/platform/database"
 	"ifri-admissions/services/api/internal/platform/httpserver"
+	"ifri-admissions/services/api/internal/platform/pdfcheck"
 	"ifri-admissions/services/api/internal/platform/storage"
 )
 
@@ -61,6 +64,14 @@ func run(logger *slog.Logger) error {
 	}
 	cache := redis.NewClient(options)
 	defer cache.Close()
+	objects, err := storage.NewS3(c.S3Endpoint, c.S3Bucket, c.S3Region, c.S3AccessKey, c.S3SecretKey)
+	if err != nil {
+		return err
+	}
+	if _, err = exec.LookPath("qpdf"); err != nil {
+		return fmt.Errorf("qpdf is required for PDF validation")
+	}
+
 	handler := httpserver.New(c.FrontendOrigin, map[string]httpserver.Check{
 		"postgres": pool.Ping,
 		"redis":    func(ctx context.Context) error { return cache.Ping(ctx).Err() },
@@ -68,8 +79,9 @@ func run(logger *slog.Logger) error {
 	}, logger, func(mux *http.ServeMux) {
 		references.Register(mux, references.NewService(references.NewRepository(pool)), logger)
 		drafts.Register(mux, drafts.NewRepository(pool), c.DraftSessionTTL, c.FrontendOrigin, c.Environment == "production", logger)
+		documents.Register(mux, documents.NewService(documents.NewRepository(pool), objects, pdfcheck.QPDF{}, c.DocumentMaxBytes, logger), c.FrontendOrigin, c.Environment == "production", logger)
 	})
-	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
+	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 75 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {
 		return fmt.Errorf("HTTP listen failed: check API_HOST, API_PORT and socket permissions")

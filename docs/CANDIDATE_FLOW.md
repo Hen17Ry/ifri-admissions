@@ -1,8 +1,8 @@
-# Parcours candidat — phase 3
+# Parcours candidat — phases 3 et 4
 
 ## Périmètre
 
-Route `/candidature`, layout candidat distinct, quatre étapes : informations personnelles → parcours académique → filière éligible → vérification du brouillon. Le récapitulatif ne soumet rien et n’attribue aucun numéro officiel. Aucun document, OCR, moyenne, classement, notification ou authentification de compte.
+Route `/candidature`, layout candidat distinct, cinq étapes : informations personnelles → parcours académique → filière éligible → documents → vérification du brouillon. Le récapitulatif ne soumet rien et n’attribue aucun numéro officiel. Aucun OCR, moyenne, classement, notification ou authentification de compte.
 
 ## Persistance et navigation
 
@@ -18,7 +18,7 @@ Conflit entre onglets : 409 DRAFT_CONFLICT, arrêt de l’autosave et rechargeme
 
 32 octets crypto/rand (256 bits), base64url sans padding. Seul SHA-256 du secret est stocké en bytea ; le brut est placé exclusivement dans le cookie `ifri_draft`. Cookie HttpOnly, SameSite=Lax, sans Domain, Path `/api/v1/applications/drafts`, Secure en production HTTPS. Expiration absolue configurable DRAFT_SESSION_TTL_SECONDS : défaut local 604800 (7 jours), valeur explicite obligatoire en production, plage 300–2592000 secondes. Pas de prolongation silencieuse ; revoked_at permet révocation côté serveur. Rotation à prévoir lors d’une future promotion vers compte/session authentifiée, aucune fixation par secret fourni à la création.
 
-Toutes les mutations exigent Origin exactement FRONTEND_ORIGIN et Content-Type application/json. CORS explicite et credentials=true ; fetch credentials=include, aucun wildcard. Origine absente refusée, sans fallback Referer ambigu ; SameSite est une défense complémentaire, pas le seul contrôle. [OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), [OWASP sessions](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
+Toutes les mutations exigent Origin exactement FRONTEND_ORIGIN. Les mutations de profil/parcours exigent application/json ; les envois documentaires exigent multipart/form-data avec un unique fichier PDF et X-Application-Version. CORS explicite et credentials=true ; fetch credentials=include, aucun wildcard. Origine absente refusée, sans fallback Referer ambigu ; SameSite est une défense complémentaire, pas le seul contrôle. [OWASP CSRF](https://cheatsheetseries.owasp.org/cheatsheets/Cross-Site_Request_Forgery_Prevention_Cheat_Sheet.html), [OWASP sessions](https://cheatsheetseries.owasp.org/cheatsheets/Session_Management_Cheat_Sheet.html).
 
 Autorisation exclusivement par hash de session lié à l’application : aucun GET/PATCH /applications/{uuid}, aucun DELETE public. DTO explicites sans hash ni secret/session id/candidate id. Corps JSON limité à 8 KiB, champs inconnus refusés, requêtes SQL paramétrées. Logs de route/méthode/durée, jamais corps/cookie/identité ; erreur SQL masquée. Création limitée à 5/minute/IP via RemoteAddr (aucune confiance dans X-Forwarded-For), mémoire bornée 1024 IP ; limite locale au processus, à adapter au déploiement. Le navigateur partagé reste un détenteur d’accès tant que le cookie est valide : ce mécanisme n’est pas une vérification d’identité ou d’email.
 
@@ -45,3 +45,7 @@ Brouillon : id interne, profile, campaign, qualification nullable, graduationYea
 Master intact ; adaptation dans design-system/ifri-admissions/pages/candidate-application.md, recherches UI UX Pro Max et inspirations 21st.dev documentées. Vue native Input/Select/Radio, aucune dépendance React/Reka non nécessaire pour ces primitives. Labels visibles, erreurs liées, résumé lié aux champs, focus première erreur puis titre d’étape, region status, stepper ol/aria-current/états textuels, cibles >=44 px et reduced-motion global.
 
 Quatre largeurs à vérifier réellement sur l’hôte : 375/768/1024/1440 ; zoom 200 %, clavier (Tab, Shift+Tab, flèches radio), overflow, labels longs, erreurs, chargement, état vide, campagne fermée. Aucun rendu visuel n’est présenté comme validé avant observation navigateur.
+
+## Étape Documents (phase 4)
+
+Quatre destinations explicites, labels et limite fournis par API. Sélecteur natif au clavier, envoi réel sans pourcentage simulé, prévisualisation authentifiée en nouvel onglet et remplacement conservant l’ancienne version jusqu’à succès. Chargement/restauration et erreurs de session ne créent pas de brouillon silencieux. Continuer relit complete serveur ; récapitulatif inclut les quatre pièces sans soumission. Contrat complet : DOCUMENT_WORKFLOW.

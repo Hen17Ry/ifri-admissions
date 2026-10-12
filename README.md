@@ -232,3 +232,25 @@ npm --prefix apps/web run dev
 Le profil test exécute désormais les tests PostgreSQL des référentiels et des brouillons dans des schémas isolés. Le dernier smoke utilise un profil synthétique, contrôle le cookie sans afficher son secret, la normalisation et BAC_E/GL, DT_DWM/GL, DT_EAP/GL refusé et l’invalidation GL ; il conserve un brouillon local de test sans soumission ni suppression.
 
 Le contrôle navigateur réel reste distinct des tests Vitest : vérifier restauration après recharge, retour/modification, erreurs, clavier, zoom 200 % et largeurs 375/768/1024/1440. Ne jamais interpréter un build ou un test jsdom comme validation visuelle.
+
+## Documents PDF — phase 4
+
+Voir docs/DOCUMENT_WORKFLOW.md et docs/PHASE4_VALIDATION.md. L’API native nécessite qpdf dans PATH ; l’image Docker l’installe. Copier les nouvelles variables S3_ACCESS_KEY, S3_SECRET_KEY, S3_REGION et DOCUMENT_MAX_BYTES depuis .env.example dans un environnement existant en remplaçant les credentials d’exemple. MinIO init crée le compte S3 limité ; ne pas utiliser le compte racine pour l’API. S3_ENDPOINT natif pointe sur le port MinIO local, Compose le remplace par l’endpoint interne.
+
+Depuis la racine, migration et tests d’intégration :
+
+```powershell
+docker compose up -d --build --wait --wait-timeout 240 api
+docker compose exec -T api db up
+docker compose --profile test run --build --rm references-tests
+uv run --project services/ocr --locked --no-sync python infra/scripts/documents_smoke.py
+```
+
+Navigateur réel (API démarrée et campagne DEV_LOCAL seedée), depuis apps/web : arrêter d’abord le serveur Vite existant sur 5173 avec Ctrl+C. Playwright démarre et arrête son propre serveur avec réoptimisation des dépendances (--force).
+
+```powershell
+npx playwright install chromium
+npm run test:browser
+```
+
+Les captures de toutes les étapes aux quatre largeurs sont dans browser-artifacts, ignoré par Git. Les fixtures et brouillons sont synthétiques ; aucune soumission. Ne pas détruire les volumes pour exécuter les tests.

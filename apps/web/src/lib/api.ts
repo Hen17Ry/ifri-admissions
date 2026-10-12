@@ -14,7 +14,10 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
     response = await fetch(`/api/v1${path}`, {
       ...options,
       credentials: 'include',
-      headers: { 'Content-Type': 'application/json', ...options.headers },
+      headers: {
+        ...(options.body instanceof FormData ? {} : { 'Content-Type': 'application/json' }),
+        ...options.headers,
+      },
       signal: options.signal ?? AbortSignal.timeout(8000),
     })
   } catch {

@@ -10,9 +10,12 @@ import UiAlert from '@/components/ui/UiAlert.vue'
 import UiSkeleton from '@/components/ui/UiSkeleton.vue'
 import ApplicationStepper from '@/features/application/ApplicationStepper.vue'
 import ProgramCard from '@/features/application/ProgramCard.vue'
+import DocumentsStep from '@/features/documents/DocumentsStep.vue'
+import { documentsApi, type DocumentListing } from '@/features/documents/api'
 import { draftApi, type Draft, type Profile, type Program } from '@/features/application/api'
 import { academicErrors, profileErrors } from '@/features/application/validation'
 import { asApiError, useApplicationStore } from '@/features/application/store'
+import { ApiError } from '@/lib/api'
 
 const store = useApplicationStore()
 const profile = reactive<Profile>({ lastName: '', firstNames: '', email: '', phone: '' })
@@ -26,6 +29,9 @@ const saveStatus = ref('')
 const programs = ref<Program[]>([])
 const programsLoading = ref(false)
 const programsError = ref('')
+const documents = ref<DocumentListing | null>(null)
+const documentsLoading = ref(false)
+const documentsError = ref('')
 const active = ref(0)
 const sessionLocked = ref(false)
 const dirty = ref(false)
@@ -33,6 +39,7 @@ const titles = [
   'Vos informations',
   'Votre parcours',
   'Filière souhaitée',
+  'Documents',
   'Vérifiez votre brouillon',
 ]
 const fields: {
@@ -62,7 +69,7 @@ const reachable = computed(() => {
   const d = store.draft
   if (!d || Object.keys(profileErrors(d.profile)).length) return 0
   if (!d.qualification || !d.graduationYear) return 1
-  return d.program ? 3 : 2
+  return d.program ? (documents.value?.complete ? 4 : 3) : 2
 })
 let ready = false
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -80,7 +87,7 @@ async function hydrate(d: Draft) {
   ready = true
   dirty.value = false
   saveStatus.value = 'Enregistré'
-  step.value = reachable.value
+  step.value = Math.min(reachable.value, 4)
 }
 async function load() {
   clearTimeout(timer)
@@ -90,18 +97,29 @@ async function load() {
   errorMessage.value = ''
   errors.value = {}
   await store.restore()
-  if (store.draft && !store.error) await hydrate(store.draft)
+  if (store.draft && !store.error) {
+    await loadDocuments()
+    await hydrate(store.draft)
+  }
 }
 async function start() {
   await store.start()
-  if (store.draft && !store.error) await hydrate(store.draft)
+  if (store.draft && !store.error) {
+    await loadDocuments()
+    await hydrate(store.draft)
+  }
 }
 function fail(e: unknown) {
   const error = asApiError(e)
   errorMessage.value = error.message
   errors.value = error.fields
   saveStatus.value = 'Modifications non enregistrées'
-  if (error.status === 401 || error.code === 'DRAFT_CONFLICT' || error.code === 'CAMPAIGN_NOT_OPEN')
+  if (
+    error.status === 401 ||
+    error.code === 'DRAFT_CONFLICT' ||
+    error.code === 'CAMPAIGN_NOT_OPEN' ||
+    error.code === 'DRAFT_NOT_EDITABLE'
+  )
     sessionLocked.value = true
 }
 function persist(kind: string): Promise<void> {
@@ -184,9 +202,51 @@ async function loadPrograms() {
 watch(step, async () => {
   document.title = `${titles[step.value]} — Admissions IFRI`
   if (step.value === 2) await loadPrograms()
+  if (step.value >= 3) await loadDocuments()
   await nextTick()
   document.getElementById('step-title')?.focus()
 })
+async function loadDocuments() {
+  if (!store.draft) return
+  documentsLoading.value = true
+  documentsError.value = ''
+  try {
+    const list = await documentsApi.list()
+    if (list.applicationVersion !== store.draft.version) {
+      throw new ApiError(
+        'DRAFT_CONFLICT',
+        'Le brouillon a changé dans un autre onglet. Rechargez-le avant de continuer.',
+        {},
+        409,
+      )
+    }
+    documents.value = list
+  } catch (e) {
+    documentsError.value = asApiError(e).message
+    if (asApiError(e).status === 401 || asApiError(e).code === 'DRAFT_CONFLICT') fail(e)
+  } finally {
+    documentsLoading.value = false
+  }
+}
+function documentSaved(list: DocumentListing) {
+  errorMessage.value = ''
+  documents.value = list
+  if (store.draft) store.draft.version = list.applicationVersion
+}
+function uploadBusy(busy: boolean) {
+  active.value += busy ? 1 : -1
+  saveStatus.value = busy
+    ? 'Envoi en cours…'
+    : errorMessage.value
+      ? 'Modifications non enregistrées'
+      : 'Enregistré'
+}
+async function finishDocuments() {
+  await loadDocuments()
+  if (documents.value?.complete && !documentsError.value) {
+    step.value = 4
+  }
+}
 async function advance() {
   errors.value =
     step.value === 0
@@ -212,7 +272,7 @@ async function advance() {
 async function goTo(target: number) {
   if (active.value || target > reachable.value) return
   clearTimeout(timer)
-  if (dirty.value) {
+  if (dirty.value && step.value < 3) {
     const valid =
       step.value === 0
         ? !Object.keys(profileErrors(profile, false)).length
@@ -291,7 +351,7 @@ onBeforeUnmount(() => {
       <div class="flow-grid">
         <section class="flow-content" :aria-busy="active > 0">
           <div class="step-heading">
-            <p class="eyebrow">Étape {{ step + 1 }} sur 4</p>
+            <p class="eyebrow">Étape {{ step + 1 }} sur 5</p>
             <p role="status" aria-atomic="true" class="save-status">
               <Check v-if="saveStatus === 'Enregistré'" :size="16" aria-hidden="true" />{{
                 saveStatus
@@ -431,11 +491,39 @@ onBeforeUnmount(() => {
                   sessionLocked ||
                   (step === 2 && (programsLoading || !!programsError || !programs.length))
                 "
-                >{{ active ? 'Enregistrement…' : step === 2 ? 'Voir le récapitulatif' : 'Continuer'
+                >{{ active ? 'Enregistrement…' : step === 2 ? 'Ajouter les documents' : 'Continuer'
                 }}<ArrowRight :size="18" aria-hidden="true"
               /></UiButton>
             </div>
           </form>
+          <div v-else-if="step === 3" class="mt-6">
+            <UiSkeleton v-if="documentsLoading" />
+            <UiAlert v-else-if="documentsError" :title="documentsError" error
+              ><UiButton variant="secondary" @click="loadDocuments">Réessayer</UiButton></UiAlert
+            >
+            <DocumentsStep
+              v-else-if="documents"
+              :listing="documents"
+              :disabled="sessionLocked"
+              @saved="documentSaved"
+              @busy="uploadBusy"
+              @failure="fail"
+            />
+            <div class="flow-actions">
+              <UiButton variant="secondary" :disabled="active > 0" @click="goTo(2)">Retour</UiButton
+              ><UiButton
+                :disabled="
+                  active > 0 ||
+                  documentsLoading ||
+                  !documents?.complete ||
+                  !!documentsError ||
+                  sessionLocked
+                "
+                @click="finishDocuments"
+                >Voir le récapitulatif</UiButton
+              >
+            </div>
+          </div>
           <div v-else class="mt-6">
             <p class="muted mb-6">
               Votre brouillon est enregistré. Vous pouvez encore modifier vos informations.
@@ -486,6 +574,13 @@ onBeforeUnmount(() => {
                 <UiButton variant="secondary" @click="goTo(2)">Modifier la filière</UiButton>
               </div>
               <p>{{ store.draft.program?.name }}</p>
+            </section>
+            <section class="review-section">
+              <div class="review-title">
+                <h3>Documents</h3>
+                <UiButton variant="secondary" @click="goTo(3)">Modifier les documents</UiButton>
+              </div>
+              <DocumentsStep v-if="documents" :listing="documents" readonly />
             </section>
             <UiAlert title="Votre candidature reste un brouillon." class="mt-6"
               >Aucune soumission définitive n’est effectuée à cette étape. Vous pouvez fermer cette

@@ -18,6 +18,8 @@ export default [
         setTimeout: 'readonly',
         clearTimeout: 'readonly',
         BeforeUnloadEvent: 'readonly',
+        Event: 'readonly',
+        HTMLInputElement: 'readonly',
       },
     },
   },

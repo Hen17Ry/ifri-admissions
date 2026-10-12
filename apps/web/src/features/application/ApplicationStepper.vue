@@ -2,7 +2,13 @@
 import { Check } from 'lucide-vue-next'
 defineProps<{ current: number; reachable: number; busy: boolean }>()
 defineEmits<{ change: [number] }>()
-const labels = ['Vos informations', 'Votre parcours', 'Filière souhaitée', 'Vérification']
+const labels = [
+  'Vos informations',
+  'Votre parcours',
+  'Filière souhaitée',
+  'Documents',
+  'Vérification',
+]
 </script>
 <template>
   <nav aria-label="Étapes du brouillon" class="flow-stepper">
@@ -25,7 +31,7 @@ const labels = ['Vos informations', 'Votre parcours', 'Filière souhaitée', 'V�
           >
           <span class="step-label">{{ label }}</span>
           <span class="sr-only"
-            >Étape {{ i + 1 }} sur 4{{
+            >Étape {{ i + 1 }} sur 5{{
               i === current ? ', actuelle' : i < reachable ? ', terminée' : ', à compléter'
             }}</span
           >

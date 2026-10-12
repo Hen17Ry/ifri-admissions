@@ -6,7 +6,7 @@ import (
 )
 
 func validEnv() map[string]string {
-	return map[string]string{"APP_ENV": "test", "API_HOST": "127.0.0.1", "API_PORT": "8080", "FRONTEND_ORIGIN": "http://localhost:5173", "POSTGRES_HOST": "localhost", "POSTGRES_PORT": "5432", "POSTGRES_DB": "ifri", "POSTGRES_USER": "local", "POSTGRES_PASSWORD": "secret:@/#", "POSTGRES_SSLMODE": "disable", "REDIS_HOST": "localhost", "REDIS_PORT": "6379", "REDIS_PASSWORD": "secret", "REDIS_TLS": "false", "MINIO_ENDPOINT": "http://localhost:9000"}
+	return map[string]string{"MINIO_BUCKET": "ifri-documents", "S3_ACCESS_KEY": "test", "S3_SECRET_KEY": "test-secret", "APP_ENV": "test", "API_HOST": "127.0.0.1", "API_PORT": "8080", "FRONTEND_ORIGIN": "http://localhost:5173", "POSTGRES_HOST": "localhost", "POSTGRES_PORT": "5432", "POSTGRES_DB": "ifri", "POSTGRES_USER": "local", "POSTGRES_PASSWORD": "secret:@/#", "POSTGRES_SSLMODE": "disable", "REDIS_HOST": "localhost", "REDIS_PORT": "6379", "REDIS_PASSWORD": "secret", "REDIS_TLS": "false", "MINIO_ENDPOINT": "http://localhost:9000"}
 }
 func TestConfig(t *testing.T) {
 	for _, tc := range []struct{ name, key, value string }{

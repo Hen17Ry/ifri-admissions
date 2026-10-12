@@ -136,3 +136,9 @@ Module drafts : handlers HTTP stricts + normalisation + repository transactionne
 Vue : route candidature lazy, CandidateLayout, composants natifs accessibles, client API central avec credentials et erreurs sûres, Pinia contenant uniquement état serveur et chargement, état de saisie transitoire dans la page. Pas de storage navigateur de PII/secret. Autosave sérialisé et confirmation d’étape après acquittement. Vite conserve le proxy de phase 2.
 
 Cookie opaque court périmètre, hash PostgreSQL, durée configurable ; Origin obligatoire pour mutations JSON, CORS credentials pour origine unique. Logs de route nommée au lieu d’URL libre. Lire CANDIDATE_FLOW pour contrat et limites de la session anonyme. Aucun module documentaire ajouté.
+
+## Phase 4 — documents
+
+Module Go documents → autorisation drafts/référentiels → validation temporaire qpdf → port storage.Objects → adaptateur S3 → repository pgx transactionnel. SDK fournisseur confiné à platform/storage ; API sert le contenu privé, aucun accès direct public au bucket.
+
+Upload limité et temporaire, SHA-256, stockage puis metadata ; compensation sur échec certain et conservation sur commit indéterminé. Détails et limites dans DOCUMENT_WORKFLOW. Vue utilise la couche API existante (multipart sans imposer de boundary), documents serveur et version optimiste du brouillon ; cinq étapes sans OCR/soumission.

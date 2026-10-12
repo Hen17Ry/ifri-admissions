@@ -4,6 +4,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CandidateApplicationPage from './CandidateApplicationPage.vue'
 import { draftApi, type Draft } from '@/features/application/api'
 import { ApiError } from '@/lib/api'
+import { documentsApi } from '@/features/documents/api'
+vi.mock('@/features/documents/api', () => ({
+  documentsApi: {
+    list: vi.fn(),
+    upload: vi.fn(),
+    content: (type: string) => '/api/v1/applications/drafts/current/documents/' + type + '/content',
+  },
+}))
 vi.mock('@/features/application/api', () => ({
   draftApi: {
     current: vi.fn(),
@@ -29,6 +37,12 @@ let stored: Draft
 let wrapper: VueWrapper | undefined
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(documentsApi.list).mockImplementation(async () => ({
+    documents: [],
+    complete: false,
+    maxBytes: 10485760,
+    applicationVersion: stored.version,
+  }))
   stored = {
     id: 'draft',
     profile: { lastName: '', firstNames: '', email: '', phone: '' },
@@ -106,7 +120,7 @@ async function academic(w: VueWrapper) {
 describe('Candidate journey', () => {
   it('shows four steps and loads qualifications', async () => {
     const w = await page()
-    expect(w.get('nav[aria-label="Étapes du brouillon"]').findAll('li')).toHaveLength(4)
+    expect(w.get('nav[aria-label="Étapes du brouillon"]').findAll('li')).toHaveLength(5)
     expect(w.text()).toContain('Vos informations')
     expect(w.text()).not.toContain('Soumettre')
     expect(draftApi.qualifications).toHaveBeenCalledOnce()
@@ -135,8 +149,42 @@ describe('Candidate journey', () => {
     await w.get('input[type="radio"]').setValue()
     await w.get('form').trigger('submit')
     await flushPromises()
+    expect(w.text()).toContain('Quatre documents sont nécessaires.')
+    expect(stored.program?.code).toBe('GL')
+  })
+
+  it('requires server completion before opening verification', async () => {
+    stored.profile = {
+      lastName: 'Validation',
+      firstNames: 'Test',
+      email: 'test@example.invalid',
+      phone: '+33123456789',
+    }
+    stored.qualification = qualification
+    stored.graduationYear = 2025
+    stored.program = program
+    vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
+    const w = await page(false)
+    const next = () => w.findAll('button').find((b) => b.text() === 'Voir le récapitulatif')!
+    expect(next().attributes('disabled')).toBeDefined()
+    const component = w.findComponent({ name: 'DocumentsStep' })
+    stored.version++
+    vi.mocked(documentsApi.list).mockImplementation(async () => ({
+      documents: [],
+      complete: true,
+      maxBytes: 10485760,
+      applicationVersion: stored.version,
+    }))
+    component.vm.$emit('saved', {
+      documents: [],
+      complete: true,
+      maxBytes: 10485760,
+      applicationVersion: stored.version,
+    })
+    await flushPromises()
+    await next().trigger('click')
+    await flushPromises()
     expect(w.text()).toContain('Votre candidature reste un brouillon.')
-    expect(w.text()).toContain('Génie Logiciel')
   })
   it('explains no eligible programs', async () => {
     vi.mocked(draftApi.programs).mockResolvedValue([])
@@ -156,6 +204,12 @@ describe('Candidate journey', () => {
     stored.qualification = qualification
     stored.graduationYear = 2025
     stored.program = program
+    vi.mocked(documentsApi.list).mockImplementation(async () => ({
+      documents: [],
+      complete: true,
+      maxBytes: 10485760,
+      applicationVersion: stored.version,
+    }))
     vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
     const w = await page(false)
     expect(w.text()).toContain('elise@example.com')

@@ -29,7 +29,8 @@ const readDraft = `SELECT a.id::text,c.last_name,c.first_names,c.email,c.phone,
  LEFT JOIN campaign_programs cp ON cp.id=a.campaign_program_id LEFT JOIN programs p ON p.id=cp.program_id
  WHERE s.secret_hash=$1`
 
-func read(ctx context.Context, db references.Queryer, hash []byte, lock bool) (Draft, error) {
+// Read authenticates the session; lock requires a caller-owned transaction.
+func Read(ctx context.Context, db references.Queryer, hash []byte, lock bool) (Draft, error) {
 	query := readDraft
 	if lock {
 		query += " FOR UPDATE OF a,s"
@@ -59,7 +60,7 @@ func read(ctx context.Context, db references.Queryer, hash []byte, lock bool) (D
 	return d, nil
 }
 func (r *PostgresRepository) Current(ctx context.Context, hash []byte) (Draft, error) {
-	return read(ctx, r.pool, hash, false)
+	return Read(ctx, r.pool, hash, false)
 }
 func (r *PostgresRepository) Create(ctx context.Context, campaign string, hash []byte, ttl time.Duration) (Draft, error) {
 	tx, err := r.pool.Begin(ctx)
@@ -89,7 +90,7 @@ func (r *PostgresRepository) Create(ctx context.Context, campaign string, hash [
 	if _, err = tx.Exec(ctx, `INSERT INTO application_draft_sessions(application_id,secret_hash,expires_at) VALUES($1::uuid,$2,now()+$3::bigint * interval '1 second')`, application, hash, int64(ttl.Seconds())); err != nil {
 		return Draft{}, err
 	}
-	d, err := read(ctx, tx, hash, false)
+	d, err := Read(ctx, tx, hash, false)
 	if err != nil {
 		return Draft{}, err
 	}
@@ -104,7 +105,7 @@ func (r *PostgresRepository) Update(ctx context.Context, hash []byte, kind strin
 		return Draft{}, err
 	}
 	defer tx.Rollback(ctx)
-	d, err := read(ctx, tx, hash, true)
+	d, err := Read(ctx, tx, hash, true)
 	if err != nil {
 		return Draft{}, err
 	}
@@ -174,7 +175,7 @@ func (r *PostgresRepository) Update(ctx context.Context, hash []byte, kind strin
 	if _, err = tx.Exec(ctx, `UPDATE applications SET version=version+1,updated_at=now() WHERE id=$1::uuid`, d.ID); err != nil {
 		return Draft{}, err
 	}
-	d, err = read(ctx, tx, hash, false)
+	d, err = Read(ctx, tx, hash, false)
 	if err != nil {
 		return Draft{}, err
 	}

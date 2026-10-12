@@ -25,6 +25,11 @@ export default defineConfig(({ mode }) => {
         },
       },
     },
-    test: { environment: 'jsdom', clearMocks: true, restoreMocks: true },
+    test: {
+      include: ['src/**/*.test.ts'],
+      environment: 'jsdom',
+      clearMocks: true,
+      restoreMocks: true,
+    },
   }
 })

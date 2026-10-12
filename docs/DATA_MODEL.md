@@ -105,3 +105,9 @@ Migration 00003, migrations 00001/00002 inchangées. `candidates` : UUID, last_n
 `applications` : UUID, candidate_id, campaign_id, campaign_program_id nullable, origin_qualification_id nullable, graduation_year nullable, state CHECK DRAFT/SUBMITTED/CANCELLED (seul DRAFT utilisable via API), version positive, timestamps. Unique candidat/campagne ; FK composite offre/campagne interdit croisements d’années ; filière nécessite qualification ; année CHECK 1900–9999, borne année courante validée en Go. Index campagne et index unique candidat/campagne ; aucun numéro officiel.
 
 `application_draft_sessions` : UUID, application_id, secret_hash bytea 32 octets unique, expires_at, revoked_at nullable, created_at ; expiration après création, index application pour révocation future. Aucun secret brut en base. Autorisation par session, pas par application UUID. Profil, qualification et filière modifiables uniquement pour DRAFT/campagne ouverte dans des transactions verrouillant application/session ; contrôle de concurrence par version. Enregistrement de notes/document/OCR hors périmètre.
+
+## Phase 4 — documents privés versionnés
+
+Migration 00004_application_documents.sql : application_documents (UUID, application_id, document_type, current_version_id, timestamps) et document_versions (UUID, application_document_id, version_number, storage_key, original_filename, content_type, size_bytes, sha256, created_at, replaced_at).
+
+Unique candidature/type, numéro positif unique par document, clé unique, taille positive, PDF MIME uniquement, SHA-256 hex64. Index partiel : une version non remplacée par document. FK composite différée + triggers différés : version courante existante, du même document, non remplacée. L’historique reste privé. Future analyse liée à document_version_id, aucune analyse ajoutée. Voir DOCUMENT_WORKFLOW.

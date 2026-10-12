@@ -16,7 +16,8 @@
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:browser": "playwright test"
   },
   "dependencies": {
     "vue": "3.5.43",
@@ -42,6 +43,7 @@
     "eslint-plugin-vue": "10.11.0",
     "typescript-eslint": "8.71.1",
     "eslint-config-prettier": "10.1.8",
-    "prettier": "3.9.10"
+    "prettier": "3.9.10",
+    "@playwright/test": "1.64.0"
   }
 }

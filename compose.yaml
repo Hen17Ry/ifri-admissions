@@ -59,6 +59,8 @@ services:
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?Set MINIO_ROOT_PASSWORD in .env}
       MINIO_BUCKET: ${MINIO_BUCKET:?Set MINIO_BUCKET in .env}
       MC_CONFIG_DIR: /tmp/mc
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
     command:
       - -ec
       - |
@@ -66,6 +68,12 @@ services:
         mc mb --ignore-existing "local/$$MINIO_BUCKET"
         mc anonymous set none "local/$$MINIO_BUCKET"
         mc anonymous get "local/$$MINIO_BUCKET"
+        cat > /tmp/documents-policy.json <<POLICY
+        {"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:GetObject","s3:PutObject","s3:DeleteObject"],"Resource":["arn:aws:s3:::$$MINIO_BUCKET/applications/*"]}]}
+        POLICY
+        mc admin user add local "$$S3_ACCESS_KEY" "$$S3_SECRET_KEY"
+        mc admin policy create local ifri-documents-api /tmp/documents-policy.json
+        mc admin policy attach local ifri-documents-api --user "$$S3_ACCESS_KEY"
     depends_on:
       minio: {condition: service_healthy}
     networks: [internal]
@@ -92,6 +100,13 @@ services:
       REDIS_PASSWORD: ${REDIS_PASSWORD:?Set REDIS_PASSWORD in .env}
       REDIS_TLS: ${REDIS_TLS:?Set REDIS_TLS in .env}
       MINIO_ENDPOINT: http://minio:9000
+      MINIO_BUCKET: ${MINIO_BUCKET:?Set MINIO_BUCKET}
+      S3_ENDPOINT: http://minio:9000
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY: ${S3_ACCESS_KEY:?Set S3_ACCESS_KEY}
+      S3_SECRET_KEY: ${S3_SECRET_KEY:?Set S3_SECRET_KEY}
+      DOCUMENT_MAX_BYTES: ${DOCUMENT_MAX_BYTES:-}
+
     ports:
       - "127.0.0.1:${API_PORT:-18080}:8080"
     depends_on:
@@ -100,6 +115,7 @@ services:
       minio-init: {condition: service_completed_successfully}
     networks: [internal, local]
     read_only: true
+    tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     healthcheck:
@@ -116,6 +132,7 @@ services:
       APP_ENV: test
     depends_on:
       postgres: {condition: service_healthy}
+      minio-init: {condition: service_completed_successfully}
     networks: [internal]
     restart: 'no'
 

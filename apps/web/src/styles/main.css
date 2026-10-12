@@ -177,7 +177,7 @@ h2,
 }
 .flow-stepper ol {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
   gap: 8px;
 }
 .flow-stepper button {
@@ -463,5 +463,73 @@ h2,
   .candidate-main {
     padding-left: 32px;
     padding-right: 32px;
+  }
+}
+
+.document-list {
+  display: grid;
+  gap: 16px;
+}
+.document-row {
+  padding: 24px 16px;
+  border: 1px solid var(--color-divider);
+  border-radius: 6px;
+  background: var(--color-surface);
+  min-width: 0;
+}
+.document-title {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+.document-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+}
+.document-filename {
+  overflow-wrap: anywhere;
+}
+.file-picker {
+  min-width: 0;
+  max-width: 100%;
+}
+.file-picker input {
+  max-width: 100%;
+  min-height: 44px;
+  font: inherit;
+  color: var(--color-foreground);
+}
+.file-picker input::file-selector-button {
+  padding: 10px 12px;
+  border: 1px solid var(--color-control-border);
+  border-radius: 6px;
+  color: var(--color-primary);
+  background: var(--color-surface);
+  cursor: pointer;
+  margin-right: 8px;
+}
+
+/* Reflow at high zoom: preserve content instead of clipping long labels. */
+.candidate-shell {
+  overflow-wrap: anywhere;
+}
+.candidate-header-inner {
+  flex-wrap: wrap;
+}
+.candidate-header-inner > div {
+  min-width: 0;
+  flex: 1 1 120px;
+}
+@media (max-width: 767px) {
+  .flow-stepper ol {
+    gap: 0;
+  }
+  .step-number {
+    width: min(32px, 100%);
+  }
+  .review-title button {
+    max-width: 100%;
   }
 }

@@ -17,6 +17,8 @@ type Config struct {
 	RedisTLS                                                                                bool
 	MinioEndpoint                                                                           string
 	DraftSessionTTL                                                                         time.Duration
+	S3Endpoint, S3Bucket, S3Region, S3AccessKey, S3SecretKey                                string
+	DocumentMaxBytes                                                                        int64
 }
 
 func Load() (Config, error) { return load(os.Getenv) }
@@ -88,6 +90,36 @@ func load(get func(string) string) (Config, error) {
 		return c, fmt.Errorf("DRAFT_SESSION_TTL_SECONDS must be between 300 and 2592000")
 	}
 	c.DraftSessionTTL = time.Duration(seconds) * time.Second
+
+	c.S3Endpoint = get("S3_ENDPOINT")
+	if c.S3Endpoint == "" {
+		c.S3Endpoint = c.MinioEndpoint
+	}
+	c.S3Bucket = get("MINIO_BUCKET")
+	c.S3Region = get("S3_REGION")
+	if c.S3Region == "" {
+		c.S3Region = "us-east-1"
+	}
+	c.S3AccessKey = get("S3_ACCESS_KEY")
+	c.S3SecretKey = get("S3_SECRET_KEY")
+	if c.S3Bucket == "" || c.S3AccessKey == "" || c.S3SecretKey == "" {
+		return c, fmt.Errorf("MINIO_BUCKET, S3_ACCESS_KEY and S3_SECRET_KEY are required")
+	}
+	u, err := url.Parse(c.S3Endpoint)
+	if err != nil || u.Host == "" || u.User != nil || u.Path != "" || u.RawQuery != "" || u.Fragment != "" || (u.Scheme != "http" && u.Scheme != "https") {
+		return c, fmt.Errorf("S3_ENDPOINT requires an explicit HTTP(S) origin")
+	}
+	if c.Environment == "production" && (u.Scheme != "https" || strings.HasPrefix(c.S3SecretKey, "replace-dev-")) {
+		return c, fmt.Errorf("S3 requires HTTPS and non-example credentials in production")
+	}
+	max := get("DOCUMENT_MAX_BYTES")
+	if max == "" && c.Environment != "production" {
+		max = "10485760"
+	}
+	c.DocumentMaxBytes, err = strconv.ParseInt(max, 10, 64)
+	if err != nil || c.DocumentMaxBytes < 1024 || c.DocumentMaxBytes > 52428800 {
+		return c, fmt.Errorf("DOCUMENT_MAX_BYTES must be between 1024 and 52428800")
+	}
 
 	return c, nil
 }

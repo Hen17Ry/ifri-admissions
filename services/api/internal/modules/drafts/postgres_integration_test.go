@@ -198,7 +198,7 @@ func TestPostgresDraftLifecycle(t *testing.T) {
 			t.Fatal("mixed state accepted")
 		}
 		_ = tx.Rollback(ctx)
-		if _, err = provider.Down(ctx); err != nil {
+		if _, err = provider.DownTo(ctx, 2); err != nil {
 			t.Fatal(err)
 		}
 		var count int

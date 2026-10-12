@@ -75,3 +75,18 @@ Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les cri
 Chaque ligne est un chantier à autoriser et découper ; cette liste ne constitue pas une autorisation de commencer la phase suivante.
 
 Phase 2 terminée : migration corrective 00002, seed idempotent, intégration PostgreSQL complète et HTTP réel validés sur l’hôte. Voir PHASE2_VALIDATION. Aucun chantier suivant commencé.
+
+## Phase 4 — documents (autorisée, validation en cours)
+
+- [x] Ajouter migration 00004 et versionnement avec contraintes, sans modifier les anciennes migrations.
+- [x] Implémenter upload PDF privé, checksum, proxy sécurisé et compensation.
+- [x] Ajouter étape Documents, récapitulatif et tests Vue/Go.
+- [x] Exécuter build/typecheck/lint/format/Vitest, tests Go et contrôles Python locaux.
+- [x] Exécuter réellement migration/rollback/réapplication et intégration PostgreSQL/S3/qpdf sur l’hôte.
+- [x] Exécuter scénario HTTP des quatre PDF et remplacement TRANSCRIPT.
+- [x] Confirmer stack reconstruite healthy et accès S3 privé.
+- [x] Exécuter navigateur réel, inspecter captures 375/768/1024/1440 et zoom CSS 200 %, vérifier les assertions clavier/focus du scénario.
+- [x] Finaliser PHASE4_VALIDATION avec preuves hôte.
+- [ ] Avant production : scanner/quarantaine, conservation et réconciliation des objets orphelins.
+
+Aucun OCR ni phase suivante commencé ; accord utilisateur requis pour la suite.

@@ -127,3 +127,18 @@ Source de la matrice : instruction utilisateur phase 2 du 12 octobre 2026 ; voir
 | 043 | Retenue | UI UX Pro Max actif, master inchangé, override candidate-application ; primitives natives Vue | Pas de dépendance React ni combobox/validation framework ajouté pour ce formulaire limité ; règles validation client centralisées et serveur obligatoire |
 | 044 | Retenue | Téléphone normalisé international, validation syntaxique sans lib de numéros | Formats étrangers permis ; pas de preuve de validité/possession du numéro. Année jusqu’à année UTC courante |
 | 045 | Retenue pour local | Création limitée par IP RemoteAddr, 5/min, mémoire bornée | Protection minimale sans confiance proxy ; rate limiting distribué à traiter lors du déploiement |
+
+## Phase 4 — décisions du 2026-10-12
+
+| ADR | Statut | Décision | Conséquences |
+|---|---|---|---|
+| 046 | Retenue | Quatre types applicatifs stables, libellés envoyés par API | Pas de table de référentiel sans besoin ; aucune duplication frontend des libellés |
+| 047 | Retenue | ApplicationDocument + DocumentVersion, pointeur courant et FK/triggers différés | Historique conservé, version future OCR précise, pas de modification des migrations 00001–00003 |
+| 048 | Retenue | Upload API multipart, temporaire borné, SHA-256 et qpdf système | 10 MiB local configurable, chiffrés/actions actives refusés ; contrôle structurel sans promesse antivirus |
+| 049 | Retenue | Port S3 générique, SDK minio-go/v7 7.3.0 dans adaptateur uniquement | Compte API limité aux objets applications/*, endpoint/région configurables ; root réservé à initialisation |
+| 050 | Retenue | Objet S3 puis transaction DB ; compensation sur échec certain | Commit indéterminé conserve objet ; réconciliation future documentée |
+| 051 | Retenue | Preview proxy API authentifié + nouvel onglet PDF natif | Pas d’URL publique/présignée persistée, Range et en-têtes sûrs, download distinct |
+| 052 | Retenue | Origin et X-Application-Version aussi sur multipart | Upload sérialisé côté UI, conflit 409 entre onglets, complétude relue au serveur |
+| 053 | Retenue | Playwright 1.64.0 dev-only pour parcours réel et captures | Tests navigateur séparés de Vitest ; exécution hôte requise, aucune donnée personnelle réelle |
+
+Sources : [SDK S3 MinIO](https://github.com/minio/minio-go/releases), [qpdf CLI](https://qpdf.readthedocs.io/en/stable/cli.html). Versions npm/Go verrouillées par les outils officiels. La version système qpdf réellement installée en conteneur sera relevée lors de la validation hôte ; paquet Alpine dans l’image existante, sans moteur OCR.

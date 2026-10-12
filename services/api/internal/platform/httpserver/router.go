@@ -68,7 +68,7 @@ func New(origin string, checks map[string]Check, logger *slog.Logger, register .
 				w.Header().Add("Vary", "Access-Control-Request-Method")
 				w.Header().Add("Vary", "Access-Control-Request-Headers")
 				method := r.Header.Get("Access-Control-Request-Method")
-				draftMutation := method == http.MethodPost && r.URL.Path == "/api/v1/applications/drafts"
+				draftMutation := method == http.MethodPost && (r.URL.Path == "/api/v1/applications/drafts" || strings.HasPrefix(r.URL.Path, "/api/v1/applications/drafts/current/documents/"))
 				if method == http.MethodPatch {
 					switch r.URL.Path {
 					case "/api/v1/applications/drafts/current/profile", "/api/v1/applications/drafts/current/academic-background", "/api/v1/applications/drafts/current/program":
@@ -80,7 +80,7 @@ func New(origin string, checks map[string]Check, logger *slog.Logger, register .
 					return
 				}
 				w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PATCH")
-				w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+				w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Application-Version")
 				w.WriteHeader(http.StatusNoContent)
 				return
 			}
