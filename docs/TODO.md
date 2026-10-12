@@ -29,10 +29,19 @@
 - [ ] Contrôler le rendu UI aux quatre largeurs, clavier et fontes locales, puis exécuter la CI préparée.
 - [ ] Relever les digests des images effectivement construites/tirées et finaliser la reproductibilité.
 
-Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les critères techniques de sortie du bootstrap sont validés. Les contrôles complémentaires restent explicitement non exécutés ; aucune phase métier commencée.
+Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les critères techniques de sortie du bootstrap sont validés. Les contrôles complémentaires restent explicitement non exécutés ; aucun parcours candidat commencé.
+
+## Phase 2 — Référentiels validés
+- [x] Créer migration Goose Up/Down, contraintes, UUID et grilles versionnées.
+- [x] Séparer seed canonique et fixture locale sans quotas officiels.
+- [x] Ajouter repositories pgx, services et six endpoints GET /api/v1.
+- [x] Ajouter tests unitaires/HTTP, tests PostgreSQL isolés et smoke HTTP réel.
+- [x] Installer Goose 3.29.0 sur l’hôte et résoudre go.mod/go.sum avec go mod tidy.
+- [x] Exécuter go test ./... et go vet ./... avec toutes les dépendances.
+- [x] Appliquer les deux migrations réelles, seed deux fois, tests PostgreSQL, stack healthy et smoke HTTP phase 2.
 
 ## 2 — Arbitrages requis avant fonctions dépendantes
-- [ ] Obtenir grille officielle complète : admissibilité et matières par chaque série/filière, dont C/D/E exactes, SI et IA.
+- [ ] Obtenir grille officielle complète : admissibilité et matières par chaque série/filière, au-delà de la matrice phase 2 fournie (C/D/E exactes, SI et IA désormais précisées).
 - [ ] Confirmer un dossier/une filière par candidat/campagne et échelle des notes.
 - [ ] Choisir authentification candidat, vérifier droits Reviewer et périmètres admin.
 - [ ] Définir quotas, règles d’égalité et validation/publication des résultats.
@@ -41,7 +50,7 @@ Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les cri
 - [ ] Fournir éléments de marque officiels et corpus autorisé/anonymisé pour benchmark.
 
 ## 3 — Construction incrémentale
-- [ ] Campagnes/référentiels versionnés et migrations avec tests de matrice.
+- [x] Campagnes/référentiels versionnés et migrations avec tests de matrice (phase 2).
 - [ ] Identité/sessions/RBAC/anti-IDOR avant exposition des dossiers.
 - [ ] Brouillon candidat et sauvegarde, UI conforme au master.
 - [ ] PDF privés, quarantaine, versionnement, prévisualisation protégée.
@@ -53,3 +62,5 @@ Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les cri
 - [ ] E2E, accessibilité, sécurité, restauration et préparation production.
 
 Chaque ligne est un chantier à autoriser et découper ; cette liste ne constitue pas une autorisation de commencer la phase suivante.
+
+Phase 2 terminée : migration corrective 00002, seed idempotent, intégration PostgreSQL complète et HTTP réel validés sur l’hôte. Voir PHASE2_VALIDATION. Aucun chantier suivant commencé.

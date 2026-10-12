@@ -1,7 +1,7 @@
 # Architecture cible
 
 ## Principe
-Monolithe Go modulaire, SPA Vue et worker Python spécialisé. PostgreSQL est la source de vérité ; Redis ne conserve jamais l’unique copie d’une décision ou d’un job. La phase 0 a défini cette cible. La phase 1 ajoute uniquement un bootstrap technique : page Vue, endpoints de santé Go, worker sans OCR et infrastructure Compose. Les flux métier ci-dessous restent la cible future et ne sont pas implémentés.
+Monolithe Go modulaire, SPA Vue et worker Python spécialisé. PostgreSQL est la source de vérité ; Redis ne conserve jamais l’unique copie d’une décision ou d’un job. La phase 0 a défini cette cible. La phase 1 fournit le bootstrap validé. La phase 2 ajoute uniquement les référentiels d’admission et leur API de lecture ; aucun candidat, document ou OCR métier. Les flux métier ci-dessous restent la cible future et ne sont pas implémentés.
 
 ```mermaid
 flowchart LR
@@ -107,16 +107,24 @@ ifri-admissions/
 Organisation `apps/web` et `services/api|ocr` demandée par l’utilisateur ; remplace la proposition phase 0 `frontend/backend/worker`. Les modules Go futurs iront dans `services/api/internal/modules/<module>` ; les fonctionnalités Vue dans `apps/web/src/features/<feature>`. Pas de fichiers placeholders pour ces modules, pas d’orchestrateur JS.
 
 ## Bootstrap local concret
-- Vite sur loopback 5173, proxy `/api/health|ready` vers les endpoints Go sans préfixe. Les futures routes métier restent `/api/v1` côté Go, à configurer alors dans le proxy ; le proxy actuel est strictement technique.
+- Vite sur loopback 5173, proxy `/api/health|ready` vers les endpoints Go sans préfixe ; `/api/v1/…` est préservé pour les référentiels.
 - Go `net/http` sans Chi (inutile pour deux routes), pgxpool et go-redis. Écoute native loopback par API_HOST, écoute conteneur 0.0.0.0 avec publication hôte loopback. Configuration environnement validée avant l’écoute ; `slog` JSON, timeouts et shutdown gracieux.
 - `/health` = liveness 200 sans dépendances. `/ready` = pgx Ping, Redis PING authentifié, HTTP MinIO `/minio/health/ready`, budget 2 s, statut 503 si indisponible. Corps sans détails sensibles. Docker health API utilise `/ready`.
 - Worker Python : Redis PING initial puis heartbeat temporaire actualisé toutes les 5 s après PING réussi, périmé après 20 s ; sortie en cas d’erreur et suppression du heartbeat au shutdown. Healthcheck Docker lit ce fichier ; aucun HTTP public ni consommation de queue.
 - Compose : postgres, redis, minio, api, ocr-worker et initialiseur `minio-init` ponctuel. Réseau `internal: true` partagé, plus bridge `local` pour les services avec ports publiés sur `127.0.0.1` ; PostgreSQL, Redis, worker et initialiseur uniquement sur internal par défaut ; override compose.native.yaml pour accès PostgreSQL/Redis natif au besoin. Volumes nommés. API/worker non root, filesystem en lecture seule (tmpfs pour worker), capabilities retirées.
 - Bucket `ifri-documents` configurable, création idempotente et politique anonyme `none`. Initialiseur seul détenteur des credentials root ; API fait seulement un contrôle HTTP de disponibilité, sans SDK S3/credentials/upload.
 - MinIO Community et mc construits depuis leurs releases source figées, leurs dépôts étant archivés ; solution locale, stratégie S3 production à revoir avant déploiement.
-- Goose retenu pour migrations futures ; aucune migration artificielle ni table métier. Le README du dossier migrations décrit l’intégration future, sans installer tous les drivers du CLI.
+- Goose 3.29.0 intégré pour la phase 2, via Provider et pgx stdlib uniquement ; migrations explicites par commande db, distinctes du démarrage API.
 - Nginx documenté uniquement ; authentification, TLS, RBAC, uploads et queue restent hors périmètre phase 1. HTTP loopback local n’est pas un déploiement production.
 - Polices Lexend/Source Sans 3 intégrées au bundle via Fontsource, sans CDN/runtime externe. Alias `@/*` commun Vite/TypeScript ; Pinia et Router préparés, aucun store métier. Reka/shadcn-vue différés jusqu’au premier composant nécessaire.
 
 ## Versions
-Versions directes exactes inscrites dans les manifests et images de phase 1 ; tableau et raisons dans DECISIONS. Go possède son go.sum. Les locks npm/uv n’ont pas pu être générés complètement faute de DNS des registres : verrouillage transitif restant à terminer, sans faux fichier de lock. Références officielles consultées : [Vue](https://vuejs.org/guide/introduction.html), [shadcn-vue](https://www.shadcn-vue.com/docs/introduction), [Tailwind/Vite](https://tailwindcss.com/docs/installation/using-vite). Aucune compatibilité de versions non installées n’est présentée comme testée.
+Versions directes exactes inscrites dans les manifests et images de phase 1 ; tableau et raisons dans DECISIONS. Go possède son go.sum. Les locks npm/uv ont été générés par les outils officiels sur l’hôte et le bootstrap a été validé ; voir BOOTSTRAP_VALIDATION. Références officielles consultées : [Vue](https://vuejs.org/guide/introduction.html), [shadcn-vue](https://www.shadcn-vue.com/docs/introduction), [Tailwind/Vite](https://tailwindcss.com/docs/installation/using-vite). Aucune compatibilité de versions non installées n’est présentée comme testée.
+
+## Module de référentiels — phase 2
+
+`internal/modules/references` : modèles sans valeurs scolaires → Repository pgx → Service (sélection campagne, éligibilité, cohérence) → handlers net/http. Le transport ne contient aucun SQL ; dépendances injectées explicitement, sans framework. L’API principale compose ce module avec les endpoints techniques et le middleware CORS/logs existants.
+
+`cmd/db` gère Up/Down Goose et seed développement explicites, avec budget 60 s. Le binaire et les SQL sont embarqués dans l’image API. Le profil Compose `test` ajoute uniquement un runner Go ponctuel, sur réseau interne, utilisant PostgreSQL existant mais un schéma temporaire isolé. Ce n’est pas un service métier supplémentaire.
+
+Matrice, version de grille, offres et quotas sont lus en PostgreSQL ; aucune matrice Go et aucune déduction depuis la série. Les tests peuvent contenir des attentes explicites indépendantes du seed. Contrat public dans ADMISSION_RULES, vérifié par tests HTTP et script references_smoke.py. Aucun store/page Vue métier ajouté.

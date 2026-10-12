@@ -14,6 +14,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"ifri-admissions/services/api/internal/config"
+	"ifri-admissions/services/api/internal/modules/references"
 	"ifri-admissions/services/api/internal/platform/database"
 	"ifri-admissions/services/api/internal/platform/httpserver"
 	"ifri-admissions/services/api/internal/platform/storage"
@@ -63,7 +64,9 @@ func run(logger *slog.Logger) error {
 		"postgres": pool.Ping,
 		"redis":    func(ctx context.Context) error { return cache.Ping(ctx).Err() },
 		"minio":    storage.Readiness(c.MinioEndpoint),
-	}, logger)
+	}, logger, func(mux *http.ServeMux) {
+		references.Register(mux, references.NewService(references.NewRepository(pool)), logger)
+	})
 	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 10 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
 	listener, err := net.Listen("tcp", server.Addr)
 	if err != nil {

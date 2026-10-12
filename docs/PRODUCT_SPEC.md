@@ -8,7 +8,11 @@ Dématérialiser dépôt, analyse des relevés, vérification administrative, ca
 Filières : Intelligence Artificielle, Sécurité Informatique, Génie Logiciel, Internet et Multimédia, Systèmes Embarqués et Internet des Objets (SEIoT).
 Distinguer admissibilité (`EligibilityRule`) et matières attendues (`ExpectedSubjectRule`). Les règles sont versionnées, rattachées à une campagne et figées pour chaque analyse. Grille incomplète : ne pas ouvrir la combinaison aux soumissions finales.
 
-### Exemples fournis, non assimilés à une grille officielle complète
+### Matrice précisée en phase 2
+
+L’instruction utilisateur du 12 octobre 2026 précise BAC C/D = Anglais et BAC E = Étude de Fabrication pour les cinq filières, ainsi que IA/SI et IM + DT/PM. La matrice détaillée et le contrat de lecture sont dans `ADMISSION_RULES.md` ; ils remplacent les ambiguïtés des exemples historiques ci-dessous. Ils ne constituent pas une campagne officielle de production ni des quotas validés.
+
+### Exemples historiques de phase 0, non assimilés à une grille officielle complète
 | Filière | Origine | Matières à rechercher |
 |---|---|---|
 | Génie Logiciel, Internet et Multimédia, SEIoT | BAC C/D/E | Mathématiques ; Français ; Anglais ou Étude de Fabrication selon série exacte |

@@ -1,7 +1,7 @@
 # IFRI Admissions — instructions aux agents
 
 ## Périmètre et sources de vérité
-Plateforme de candidature de l’Institut de Formation et de Recherche en Informatique (IFRI), Université d’Abomey-Calavi. Deux espaces : candidat et administration. Développement progressif, par petites phases testables. Le bootstrap actuel contient uniquement une page et des endpoints techniques, sans fonctionnalité métier.
+Plateforme de candidature de l’Institut de Formation et de Recherche en Informatique (IFRI), Université d’Abomey-Calavi. Deux espaces : candidat et administration. Développement progressif, par petites phases testables. Le bootstrap est validé ; la phase 2 ajoute uniquement les référentiels et leur API GET, sans candidats/candidatures/documents ni moteur OCR.
 Lire `docs/PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md` et `docs/DECISIONS.md` avant de modifier le projet. Suivre `docs/ROADMAP.md` et `docs/TODO.md`. Les instructions explicites de l’utilisateur priment ; ne commencer aucune phase suivante sans son accord.
 
 ## Invariants métier non négociables
@@ -19,7 +19,7 @@ Lire `docs/PRODUCT_SPEC.md`, `docs/ARCHITECTURE.md`, `docs/DATA_MODEL.md` et `do
 ## Stack et architecture
 Vue 3, TypeScript strict, Vite, Vue Router, Pinia, Tailwind CSS, shadcn-vue/Reka UI selon besoin, `lucide-vue-next`. **Aucune dépendance React**.
 Go : monolithe modulaire ; Python : worker documentaire séparé ; PostgreSQL : vérité métier ; MinIO/S3 : PDF privés ; Redis : queue/cache ; Nginx : reverse proxy ; Docker Compose : environnement local.
-Versions retenues dans les manifests et `docs/DECISIONS.md` ; compléter la validation/les locks réseau selon `docs/BOOTSTRAP_VALIDATION.md`. Ne pas adopter les exemples React ou anciennes configurations Tailwind d’un skill sans adaptation.
+Versions retenues dans les manifests et `docs/DECISIONS.md` ; preuves bootstrap dans `docs/BOOTSTRAP_VALIDATION.md`, preuves des référentiels dans `docs/PHASE2_VALIDATION.md`. Ne pas adopter les exemples React ou anciennes configurations Tailwind d’un skill sans adaptation.
 Modules Go : identité, campagnes/référentiels, candidatures, documents, analyses, vérification, classement, audit. Dépendances transport → cas d’usage → domaine ; adaptateurs implémentent les ports. Pas de microservices supplémentaires ni de framework abstrait sans besoin concret.
 Go possède les écritures métier PostgreSQL. Python ne décide ni admissibilité ni moyenne ni sélection. Contrats OCR versionnés ; jobs idempotents ; provenance immuable ; migrations SQL versionnées lors de leur introduction.
 
@@ -37,3 +37,6 @@ Clavier, focus visible non masqué, labels, erreurs liées aux champs et résum�
 
 ## Méthode de travail
 Inspecter l’existant et les instructions locales ; limiter les changements à la phase autorisée. Documenter décisions et hypothèses, ne pas créer des répertoires vides par anticipation. Tests adaptés aux invariants et risques réels, sans données personnelles réelles dans le dépôt. Vérifier les contrats interlangages, concurrence et droits lors de leur implémentation. À chaque livraison : fichiers changés, vérifications, limites et prochaine étape proposée ; attendre l’accord avant celle-ci.
+
+## Référentiels de phase 2
+Migrations Goose explicites, seed canonique séparé de DEV_LOCAL non officiel, seed jamais en production. Consulter `docs/ADMISSION_RULES.md` pour matrice et contrat HTTP. Qualification canonique OriginQualification ; quotas nullable par CampaignProgram. Grilles versionnées par offre, publiées immuables ; règles inconnues non autorisées sans inventer de refus officiel. Ne pas ajouter de coefficients. Tests PostgreSQL isolés via profil Compose test ; aucune suppression de volume local pour tester.

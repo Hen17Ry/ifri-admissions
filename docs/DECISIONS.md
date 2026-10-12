@@ -100,3 +100,17 @@ Statut : retenue. L’exécution hôte a confirmé un conflit sur 127.0.0.1:5432
 
 ### ADR 030 — ports hôte dédiés à IFRI
 Statut : retenue, disponibilité finale à vérifier sur l’hôte. La liste des conteneurs exécutée par l’utilisateur montre que les ports hôte 8080, 9000 et 9001 sont déjà publiés par d’autres projets. Fixer API_PORT=18080, MINIO_API_PORT=19000 et MINIO_CONSOLE_PORT=19001 dans .env.example et la configuration locale, avec MINIO_ENDPOINT=http://127.0.0.1:19000. Les ports internes restent API 8080, MinIO 9000/9001, PostgreSQL 5432, Redis 6379. Vite utilise API_PORT du .env racine, fallback aligné à 18080 ; smoke check utilise la même configuration. Aucun service tiers arrêté, aucun volume supprimé. Ces trois nouveaux ports ne figurent pas dans les publications Docker fournies ; leur disponibilité vis-à-vis de processus non Docker n’est pas encore prouvée.
+
+## Phase 2 — décisions du 2026-10-12
+
+| ADR | Statut | Décision | Conséquences |
+|---|---|---|---|
+| 031 | Retenue | UUID v4 PostgreSQL via gen_random_uuid(), conformément au modèle initial | Aucun générateur/extension supplémentaire ; codes métier uniques séparés des UUID. [Documentation PostgreSQL](https://www.postgresql.org/docs/current/functions-uuid.html) |
+| 032 | Retenue | OriginQualification canonique BAC_C/DT_IMI…, Subject, CampaignProgram pour quotas | Pas de texte libre d’origine ni de note/coefficient dans les référentiels |
+| 033 | Retenue | Grille versionnée au niveau CampaignProgram, éligibilité unique par version/qualification | Précise ADR 002 : aucune répétition campaign_id/program_id en aval, une publiée par offre, publiée immuable ; remplacement intra-offre différé |
+| 034 | Retenue | Goose 3.29.0 intégré par Provider et pgx stdlib, commande db explicite, verrou PostgreSQL | Schéma embarqué Up/Down ; aucune migration automatique HTTP. Version déjà décidée, [release officielle](https://github.com/pressly/goose/releases/tag/v3.29.0) vérifiée |
+| 035 | Retenue | Schéma, seed canonique et fixture locale séparés ; transaction et verrou seed | Campagne DEV_LOCAL non officielle ; quotas NULL ; seed refusé en production, aucune écriture d’une grille publiée |
+| 036 | Retenue | GET /api/v1, campagne ouverte unique implicite ou code explicite, [starts_at,ends_at[ | Ambiguïté 409 ; codes inconnus 404 ; règle absente 200 eligible=false RULE_NOT_DEFINED, refus explicite INELIGIBLE ; matrice utilisateur persistée SQL |
+| 037 | Retenue | Tests PostgreSQL via profil Compose test et schéma temporaire propre à chaque exécution | Pas de port PostgreSQL publié, aucune base locale effacée ; tests opt-in -tags=integration ; HTTP réel via script séparé |
+
+Source de la matrice : instruction utilisateur phase 2 du 12 octobre 2026 ; voir ADMISSION_RULES. Aucun quota ni communiqué officiel inventé. Les validations réelles et celles bloquées sont suivies dans PHASE2_VALIDATION.

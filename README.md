@@ -1,6 +1,6 @@
 # IFRI Admissions
 
-Bootstrap technique de la plateforme d’admissions IFRI/UAC. Cette phase fournit une page Vue, une API technique Go et un worker Python sans OCR, avec PostgreSQL, Redis et MinIO privés en développement local. Aucun parcours candidat ou administratif n’est développé.
+Plateforme d’admissions IFRI/UAC : bootstrap technique validé et référentiels de phase 2 en lecture. Page Vue technique, API Go et worker Python sans OCR, avec PostgreSQL, Redis et MinIO privés en développement local. Aucun parcours candidat ou administratif n’est développé.
 
 **Bootstrap technique validé** : dépendances et locks, contrôles frontend/Go/Python, stack Docker et smoke check réels, persistance du volume PostgreSQL, panne/reprise de readiness, arrêt propre du worker et appel Vue → API confirmé dans le navigateur. Contrôles visuels approfondis et CI GitHub non exécutés. Voir [le rapport exact](docs/BOOTSTRAP_VALIDATION.md).
 
@@ -137,7 +137,7 @@ go test ./...
 go build -buildvcs=false ./cmd/api
 ```
 
-`gofmt -l .` doit rester vide ; `gofmt -w .` applique les corrections. Les tests vérifient liveness/readiness, CORS et les refus de configuration sans serveur métier. Aucune migration de table métier n’est ajoutée. Goose est choisi pour les migrations futures ; voir `migrations/README.md`.
+`gofmt -l .` doit rester vide ; `gofmt -w .` applique les corrections. Les tests vérifient liveness/readiness, CORS, configuration et référentiels. Goose 3.29.0 gère désormais la migration de phase 2 ; voir `services/api/migrations/README.md`.
 
 Worker, depuis `services/ocr` :
 
@@ -177,3 +177,34 @@ Master : `design-system/ifri-admissions/MASTER.md`. Page technique sobre avec to
 Les aliases Vite/TypeScript `@/*` sont préparés. shadcn-vue/Reka seront ajoutés à la demande d’un composant, avec leurs règles Vue/Tailwind compatibles et le master existant ; aucun composant ou package React n’est introduit. Les dossiers de fonctionnalités/modules ne seront créés qu’à leur première utilisation.
 
 MinIO Community et mc sont archivés et distribués en sources : les Dockerfiles fixent leurs releases et les compilent. Cette solution est limitée au développement demandé ; la maintenance, les licences et le choix S3 de production devront être revus avant déploiement. Les buckets sont privés, l’initialiseur applique `anonymous set none`, et le smoke check teste le refus anonyme.
+
+## Phase 2 — référentiels et API de lecture
+
+**Phase 2 validée** : migrations, seed idempotent, contraintes/matrice PostgreSQL et HTTP réel. Preuves dans [PHASE2_VALIDATION.md](docs/PHASE2_VALIDATION.md).
+
+Après résolution des nouvelles dépendances Go depuis la racine (Go installé) :
+
+```powershell
+go -C services/api mod tidy
+docker compose up -d --build --wait --wait-timeout 240
+docker compose exec -T api db up
+docker compose exec -T api db seed
+docker compose exec -T api db seed
+docker compose --profile test run --build --rm references-tests
+uv run --project services/ocr --locked --no-sync python infra/scripts/smoke.py
+uv run --project services/ocr --locked --no-sync python infra/scripts/references_smoke.py
+```
+
+Le second seed confirme la relance opérationnelle ; les tests PostgreSQL comparent aussi toutes les lignes/UUID avant et après deux seeds. Le runner de test crée et supprime uniquement un schéma temporaire unique ; aucun volume existant effacé et aucun port PostgreSQL supplémentaire publié. Les tests d’intégration sont exécutés avec `-tags=integration` ; les tests unitaires restent `go test ./...`.
+
+`db up` est idempotent et séparé du démarrage HTTP. `db seed` est autorisé uniquement avec APP_ENV development/test. Il charge les référentiels canoniques puis DEV_LOCAL (campagne de démonstration non officielle), sa matrice et des quotas NULL. Aucun seed automatique en production.
+
+Contrat et matrice : [docs/ADMISSION_RULES.md](docs/ADMISSION_RULES.md). Exemples PowerShell, URLs également utilisables dans un navigateur :
+
+```powershell
+Invoke-RestMethod 'http://localhost:18080/api/v1/programs?campaign=DEV_LOCAL'
+Invoke-RestMethod 'http://localhost:18080/api/v1/expected-subjects?campaign=DEV_LOCAL&program=GL&qualification=DT_DWM'
+Invoke-RestMethod 'http://localhost:18080/api/v1/expected-subjects?campaign=DEV_LOCAL&program=GL&qualification=BAC_E'
+```
+
+Toutes les routes sont GET ; aucune authentification, écriture administrative, candidature ou extraction documentaire. Les notes et coefficients restent absents des règles. Aucun écran métier ajouté.

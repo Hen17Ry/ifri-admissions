@@ -59,6 +59,11 @@ jobs:
       - run: cp .env.example .env
       - run: docker compose config --quiet
       - run: docker compose up -d --build --wait --wait-timeout 240
+      - run: docker compose exec -T api db up
+      - run: docker compose exec -T api db seed
+      - run: docker compose exec -T api db seed
+      - run: docker compose --profile test run --build --rm references-tests
       - run: python infra/scripts/smoke.py
+      - run: python infra/scripts/references_smoke.py
       - if: always()
         run: docker compose down --volumes

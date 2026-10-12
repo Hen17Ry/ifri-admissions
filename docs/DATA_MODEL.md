@@ -1,6 +1,6 @@
 # Modèle conceptuel de données
 
-Modèle cible, sans DDL ni migrations dans cette phase. Identifiants opaques UUID ; timestamps UTC ; montants de notes/coefficients en `NUMERIC` avec précision à fixer selon corpus. Versions immuables pour règles, documents et résultats. Références campagne explicites pour empêcher les croisements entre années.
+Modèle cible ; la phase 2 implémente uniquement les huit tables de référentiels décrites ci-dessous. Identifiants opaques UUID ; timestamps UTC ; montants de notes/coefficients en `NUMERIC` avec précision à fixer selon corpus. Versions immuables pour règles, documents et résultats. Références campagne explicites pour empêcher les croisements entre années.
 
 ## Entités
 | Entité | Données principales et relations |
@@ -8,10 +8,10 @@ Modèle cible, sans DDL ni migrations dans cette phase. Identifiants opaques UUI
 | AdmissionCampaign | id, nom, année, opens_at, closes_at, statut ; possède offres de filières et versions de grille |
 | CampaignProgram | campagne + Program, quota non négatif, ouverture opérationnelle ; unique (campagne, filière) |
 | Program | code stable, nom, actif ; cinq filières initiales |
-| DiplomaType | code stable, famille BAC/DT, série/spécialité exacte (C, D, E, IMI, DWM, EAP…), actif |
+| OriginQualification | code stable, famille BAC/DT, série/spécialité exacte (C, D, E, IMI, DWM, EAP…), actif |
 | RuleSetVersion | campagne, numéro, source officielle, état DRAFT/PUBLISHED, auteur/date ; publication immuable |
 | EligibilityRule | version grille, diplôme, filière, admissibilité et conditions documentées ; absence ≠ autorisation |
-| CanonicalSubject | code, libellé ; alias normalisés versionnés pour correspondance OCR |
+| Subject | code, libellé ; alias normalisés versionnés pour correspondance OCR |
 | ExpectedSubjectRule | règle d’admissibilité + matière canonique + ordre ; ensemble complet pour le couple diplôme/filière ; **aucun coefficient, aucune note** |
 | Candidate | identité, email, téléphone ; références d’authentification à décider ; indépendant des campagnes |
 | Application | candidat, CampaignProgram, diplôme, année obtention, snapshot identité au dépôt, règle/version utilisée, états dépôt/administration, active_analysis_id, revision, submitted_at |
@@ -40,10 +40,10 @@ erDiagram
     Program ||--o{ CampaignProgram : figure
     AdmissionCampaign ||--o{ RuleSetVersion : versionne
     RuleSetVersion ||--o{ EligibilityRule : contient
-    DiplomaType ||--o{ EligibilityRule : origine
+    OriginQualification ||--o{ EligibilityRule : origine
     Program ||--o{ EligibilityRule : destination
     EligibilityRule ||--o{ ExpectedSubjectRule : attend
-    CanonicalSubject ||--o{ ExpectedSubjectRule : definit
+    Subject ||--o{ ExpectedSubjectRule : definit
     Candidate ||--o{ Application : depose
     CampaignProgram ||--o{ Application : recoit
     Application ||--o{ ApplicationDocument : versionne
@@ -69,3 +69,31 @@ erDiagram
 - Changement d’origine/filière/PDF : nouvelle révision et nouvelles références ; anciennes preuves restent historiques, confirmation et moyenne ne sont plus actives. Dossier rouvert = exclusion du classement courant et invalidation de la proposition concernée.
 - Calcul garde ses opérandes ; classement garde son périmètre et ses calculs sources. Publication exige un dernier contrôle transactionnel de fraîcheur des dossiers et quotas.
 - Conservation, effacement, anonymisation et exceptions d’audit restent à fixer. Pas de suppression en cascade des preuves d’une décision sans politique validée ; historique ne signifie pas conservation illimitée.
+
+## Schéma effectivement ajouté en phase 2
+
+- `admission_campaigns` : UUID v4, code unique, name, academic_year, starts_at/ends_at timestamptz, statut CHECK DRAFT/OPEN/CLOSED/ARCHIVED, created_at/updated_at. Fermeture strictement après ouverture ; année non unique.
+- `programs` : UUID, code unique, name, enabled et timestamps.
+- `origin_qualifications` : UUID, code unique, label, family CHECK BAC/DT, enabled. Remplace le nom conceptuel DiplomaType sans décomposer artificiellement diplôme/série/spécialité.
+- `subjects` : UUID, code unique, name, enabled. Nom concret de CanonicalSubject, sans valeurs scolaires.
+- `campaign_programs` : UUID, FK campagne/filière, unique couple, enabled, available_seats entier nullable CHECK >=0.
+- `rule_set_versions` : UUID, FK CampaignProgram, version >0 unique par offre, source, statut DRAFT/PUBLISHED, created_at. Granularité de versionnement par offre campagne/filière (précision du modèle initial par campagne) ; index partiel unique : une grille publiée par offre.
+- `program_qualification_eligibilities` : UUID, FK version/qualification, eligible, unique (version, qualification). Aucune duplication de campagne/programme dans cette table. Les qualifications peuvent varier entre versions, jamais être dupliquées dans une version.
+- `expected_subject_rules` : UUID, FK éligibilité/matière, position >0, unique (éligibilité, matière) et (éligibilité, position). **Aucune note, aucun coefficient, aucun poids.**
+
+FK restrictives sans cascade de données métier. Les index PK/uniques servent aux recherches par code et à la traversée campagne → offre → grille → qualification → matières ; aucun index métier spéculatif.
+
+Triggers : seules les grilles DRAFT sont modifiables ; publication exige au moins une combinaison éligible, des matières non vides et positions contiguës à partir de 1, aucun sujet sur une combinaison explicitement refusée. Publication directe à l’insertion interdite. Éligibilités et sujets d’une grille publiée immuables, y compris changement de parent ; verrou du parent pour coordonner écriture/publication. Le service refuse aussi les grilles incomplètes ou sujets désactivés. Mise à jour automatique des timestamps à introduire avec les futurs cas d’écriture, absents de cette API de lecture.
+
+```mermaid
+erDiagram
+    AdmissionCampaign ||--o{ CampaignProgram : propose
+    Program ||--o{ CampaignProgram : figure
+    CampaignProgram ||--o{ RuleSetVersion : versionne
+    RuleSetVersion ||--o{ ProgramQualificationEligibility : contient
+    OriginQualification ||--o{ ProgramQualificationEligibility : origine
+    ProgramQualificationEligibility ||--o{ ExpectedSubjectRule : attend
+    Subject ||--o{ ExpectedSubjectRule : definit
+```
+
+Toutes les autres entités restent conceptuelles et ne possèdent aucune table ni endpoint dans cette phase.

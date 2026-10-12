@@ -5,13 +5,17 @@ import (
 	"encoding/json"
 	"log/slog"
 	"net/http"
+	"strings"
 	"time"
 )
 
 type Check func(context.Context) error
 
-func New(origin string, checks map[string]Check, logger *slog.Logger) http.Handler {
+func New(origin string, checks map[string]Check, logger *slog.Logger, register ...func(*http.ServeMux)) http.Handler {
 	mux := http.NewServeMux()
+	for _, add := range register {
+		add(mux)
+	}
 	mux.HandleFunc("GET /health", func(w http.ResponseWriter, r *http.Request) {
 		respond(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
@@ -62,7 +66,7 @@ func New(origin string, checks map[string]Check, logger *slog.Logger) http.Handl
 			if r.Method == http.MethodOptions {
 				w.Header().Add("Vary", "Access-Control-Request-Method")
 				w.Header().Add("Vary", "Access-Control-Request-Headers")
-				if r.Header.Get("Access-Control-Request-Method") != http.MethodGet || (r.URL.Path != "/health" && r.URL.Path != "/ready") {
+				if r.Header.Get("Access-Control-Request-Method") != http.MethodGet || (r.URL.Path != "/health" && r.URL.Path != "/ready" && !strings.HasPrefix(r.URL.Path, "/api/v1/")) {
 					w.WriteHeader(http.StatusMethodNotAllowed)
 					return
 				}

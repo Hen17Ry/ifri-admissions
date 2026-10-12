@@ -75,7 +75,7 @@ services:
 
   api:
     build: ./services/api
-    environment:
+    environment: &api-environment
       APP_ENV: ${APP_ENV:?Set APP_ENV in .env}
       API_HOST: '0.0.0.0'
       API_PORT: '8080'
@@ -104,6 +104,19 @@ services:
     healthcheck:
       <<: *health
       test: [CMD, api, healthcheck]
+
+  references-tests:
+    profiles: [test]
+    build:
+      context: ./services/api
+      target: test
+    environment:
+      <<: *api-environment
+      APP_ENV: test
+    depends_on:
+      postgres: {condition: service_healthy}
+    networks: [internal]
+    restart: 'no'
 
   ocr-worker:
     build: ./services/ocr
