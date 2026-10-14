@@ -29,6 +29,9 @@ func (s *Service) List(ctx context.Context, hash []byte) (Listing, error) {
 	if err != nil {
 		return Listing{}, err
 	}
+	if err = drafts.Editable(d); err != nil {
+		return Listing{}, err
+	}
 	current, err := s.repo.List(ctx, d.ID)
 	if err != nil {
 		return Listing{}, err
@@ -58,8 +61,8 @@ func (s *Service) authorize(ctx context.Context, hash []byte, version int64, cod
 	if err != nil {
 		return d, err
 	}
-	if d.State != "DRAFT" {
-		return d, issue(409, "DRAFT_NOT_EDITABLE", "Ce dossier ne peut plus être modifié.")
+	if err = drafts.Editable(d); err != nil {
+		return d, err
 	}
 	if d.Version != version {
 		return d, drafts.ErrConflict
@@ -126,6 +129,9 @@ func (s *Service) Content(ctx context.Context, hash []byte, code string) (Versio
 	}
 	d, err := s.repo.Draft(ctx, hash)
 	if err != nil {
+		return Version{}, storage.Object{}, err
+	}
+	if err = drafts.Editable(d); err != nil {
 		return Version{}, storage.Object{}, err
 	}
 	v, err := s.repo.Current(ctx, d.ID, code)

@@ -1,5 +1,6 @@
 import { mount, flushPromises, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
+import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CandidateApplicationPage from './CandidateApplicationPage.vue'
 import { draftApi, type Draft } from '@/features/application/api'
@@ -13,6 +14,11 @@ vi.mock('@/features/documents/api', () => ({
     upload: vi.fn(),
     content: (type: string) => '/api/v1/applications/drafts/current/documents/' + type + '/content',
   },
+}))
+import { submissionApi } from '@/features/submission/api'
+vi.mock('@/features/submission/api', async (original) => ({
+  ...(await original<typeof import('@/features/submission/api')>()),
+  submissionApi: { submit: vi.fn(), receipt: vi.fn() },
 }))
 vi.mock('@/features/application/api', () => ({
   draftApi: {
@@ -37,8 +43,20 @@ const qualification = { code: 'DT_DWM', name: 'DT/DWM', family: 'DT' }
 const program = { code: 'GL', name: 'Génie Logiciel' }
 let stored: Draft
 let wrapper: VueWrapper | undefined
+let router: Router
 beforeEach(() => {
   vi.resetAllMocks()
+  // jsdom has no modal dialog: record showModal()/close() and refuse the non-modal show().
+  HTMLDialogElement.prototype.showModal = vi.fn(function (this: HTMLDialogElement) {
+    this.setAttribute('open', '')
+  })
+  HTMLDialogElement.prototype.close = vi.fn(function (this: HTMLDialogElement) {
+    this.removeAttribute('open')
+    this.dispatchEvent(new Event('close'))
+  })
+  HTMLDialogElement.prototype.show = vi.fn(() => {
+    throw new Error('show() is not modal')
+  })
   vi.mocked(analysisApi.current).mockResolvedValue({
     id: 'analysis',
     documentVersionId: 'v1',
@@ -96,8 +114,17 @@ afterEach(() => {
   vi.useRealTimers()
 })
 async function page(start = true) {
+  const stub = { render: () => null }
+  router = createRouter({
+    history: createMemoryHistory(),
+    routes: [
+      { path: '/candidature', name: 'candidate-application', component: stub },
+      { path: '/candidature/confirmation', name: 'candidate-confirmation', component: stub },
+    ],
+  })
+  await router.push('/candidature')
   wrapper = mount(CandidateApplicationPage, {
-    global: { plugins: [createPinia()] },
+    global: { plugins: [createPinia(), router] },
     attachTo: document.body,
   })
   await flushPromises()
@@ -249,7 +276,8 @@ describe('Candidate journey', () => {
     await next().trigger('click')
     await flushPromises()
     expect(w.text()).toContain('Informations du relevé confirmées')
-    expect(w.text()).toContain('Votre candidature reste un brouillon.')
+    expect(w.text()).toContain('Soumission définitive')
+    expect(w.text()).not.toContain('moyenne')
   })
   it('automatically displays pending analysis inside transcript card after restoration', async () => {
     stored.profile = {
@@ -379,5 +407,220 @@ describe('Candidate journey', () => {
       'profile',
       expect.objectContaining({ version: 2 }),
     )
+  })
+})
+
+const complete = ['REQUEST_LETTER', 'TRANSCRIPT', 'IDENTITY_DOCUMENT', 'PARENTAL_COMMITMENT'].map(
+  (type) => ({
+    type,
+    label: type,
+    required: true,
+    uploaded: true,
+    version: 1,
+    filename: 'synthetic.pdf',
+    sizeBytes: 100,
+  }),
+)
+const receipt = {
+  applicationNumber: 'IFRI-2026-GL-000042',
+  submittedAt: '2026-10-14T09:30:00Z',
+  candidate: { lastName: 'Dossou', firstNames: 'Élise' },
+  campaign: { code: 'DEV_LOCAL', name: 'Campagne de démonstration', academicYear: '2026-2027' },
+  program: { code: 'GL', name: 'Génie Logiciel' },
+  qualification: { code: 'DT_DWM', name: 'DT/DWM' },
+  graduationYear: 2025,
+  sessionExpiresAt: '2027-06-30T00:00:00Z',
+}
+// A restored, complete draft opens directly on the Verification step.
+async function verification() {
+  stored.profile = {
+    lastName: 'Dossou',
+    firstNames: 'Élise',
+    email: 'elise@example.com',
+    phone: '+33123456789',
+  }
+  stored.qualification = qualification
+  stored.graduationYear = 2025
+  stored.program = program
+  vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
+  vi.mocked(documentsApi.list).mockImplementation(async () => ({
+    documents: complete,
+    complete: true,
+    maxBytes: 10485760,
+    applicationVersion: stored.version,
+  }))
+  const w = await page(false)
+  expect(w.get('#step-title').text()).toBe('Vérifiez et soumettez')
+  return w
+}
+const submitButton = (w: VueWrapper) => w.get('#submit-application')
+const dialogButton = (w: VueWrapper, label: string) =>
+  w
+    .get('dialog')
+    .findAll('button')
+    .find((b) => b.text() === label)!
+
+describe('Submission', () => {
+  it('shows a complete review without the average and a single submit action', async () => {
+    const w = await verification()
+    for (const value of ['Dossou', 'elise@example.com', 'DT/DWM', '2025', 'Génie Logiciel'])
+      expect(w.text()).toContain(value)
+    expect(w.text()).not.toMatch(/moyenne/i)
+    expect(submitButton(w).text()).toBe('Soumettre ma candidature')
+    expect(submitButton(w).attributes('disabled')).toBeUndefined()
+    expect(w.get('dialog').attributes('open')).toBeUndefined()
+  })
+
+  it('confirms in a modal dialog: initial focus, Escape and focus restoration', async () => {
+    const w = await verification()
+    ;(submitButton(w).element as HTMLButtonElement).focus()
+    await submitButton(w).trigger('click')
+    await flushPromises()
+    const dialog = w.get('dialog')
+    expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalledOnce()
+    expect(HTMLDialogElement.prototype.show).not.toHaveBeenCalled()
+    expect(dialog.attributes('role')).toBe('alertdialog')
+    expect(dialog.text()).toContain(
+      'Après soumission, vous ne pourrez plus modifier votre candidature',
+    )
+    expect(document.getElementById(dialog.attributes('aria-describedby')!)?.textContent).toContain(
+      'Après soumission',
+    )
+    expect(document.activeElement?.textContent).toBe('Annuler')
+    // Escape: the browser fires "cancel", then closes the dialog.
+    const escape = new Event('cancel', { cancelable: true })
+    dialog.element.dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(false)
+    ;(dialog.element as HTMLDialogElement).close()
+    await flushPromises()
+    expect(dialog.attributes('open')).toBeUndefined()
+    expect(document.activeElement?.id).toBe('submit-application')
+    expect(submissionApi.submit).not.toHaveBeenCalled()
+    // Annuler closes the same way.
+    await submitButton(w).trigger('click')
+    await flushPromises()
+    await dialogButton(w, 'Annuler').trigger('click')
+    await flushPromises()
+    expect(w.get('dialog').attributes('open')).toBeUndefined()
+    expect(document.activeElement?.id).toBe('submit-application')
+  })
+
+  it('shows the loading state, blocks Escape while sending, then opens the confirmation', async () => {
+    const w = await verification()
+    let resolve!: (value: typeof receipt) => void
+    vi.mocked(submissionApi.submit).mockReturnValue(new Promise((done) => (resolve = done)))
+    await submitButton(w).trigger('click')
+    await flushPromises()
+    await dialogButton(w, 'Confirmer la soumission').trigger('click')
+    await flushPromises()
+    expect(submissionApi.submit).toHaveBeenCalledWith(stored.version)
+    expect(w.get('dialog').attributes('aria-busy')).toBe('true')
+    expect(dialogButton(w, 'Soumission en cours…').attributes('disabled')).toBeDefined()
+    expect(dialogButton(w, 'Annuler').attributes('disabled')).toBeDefined()
+    const escape = new Event('cancel', { cancelable: true })
+    w.get('dialog').element.dispatchEvent(escape)
+    expect(escape.defaultPrevented).toBe(true)
+    resolve(receipt)
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('candidate-confirmation')
+    expect(submissionApi.submit).toHaveBeenCalledOnce()
+  })
+
+  it('returns to Documents when admission rules changed, where the new analysis must be confirmed', async () => {
+    const w = await verification()
+    vi.mocked(submissionApi.submit).mockRejectedValue(
+      new ApiError('ADMISSION_RULES_CHANGED', 'Règles modifiées', {}, 409),
+    )
+    vi.mocked(analysisApi.current).mockResolvedValue({
+      id: 'reanalysis',
+      documentVersionId: 'v1',
+      status: 'QUEUED',
+      candidateConfirmation: 'PENDING',
+      subjects: [],
+      verificationReady: false,
+    })
+    await submitButton(w).trigger('click')
+    await flushPromises()
+    await dialogButton(w, 'Confirmer la soumission').trigger('click')
+    await flushPromises()
+    expect(w.get('#step-title').text()).toBe('Documents')
+    expect(document.activeElement?.id).toBe('step-title')
+    expect(w.text()).toContain('Les règles d’admission de votre filière ont changé')
+    const transcript = w
+      .findAll('.document-row')
+      .find((row) => row.find('#file-TRANSCRIPT').exists())!
+    expect(transcript.text()).toContain('Analyse de votre relevé en cours')
+    const next = w.findAll('button').find((b) => b.text() === 'Voir le récapitulatif')!
+    expect(next.attributes('disabled')).toBeDefined()
+    expect(router.currentRoute.value.name).toBe('candidate-application')
+  })
+
+  it('explains each refusal in French with the next action', async () => {
+    for (const [code, text, title] of [
+      ['VERSION_CONFLICT', 'modifié dans un autre onglet', 'Vérifiez et soumettez'],
+      ['CAMPAIGN_CLOSED', 'La campagne est close', 'Vérifiez et soumettez'],
+      ['APPLICATION_NOT_ELIGIBLE', 'Choisissez une autre filière', 'Filière souhaitée'],
+      ['TRANSCRIPT_ANALYSIS_OUTDATED', 'confirmez la nouvelle analyse', 'Documents'],
+      ['NETWORK_ERROR', 'le même numéro vous sera affiché', 'Vérifiez et soumettez'],
+    ] as const) {
+      vi.mocked(submissionApi.submit).mockRejectedValue(new ApiError(code, 'serveur', {}, 409))
+      const w = await verification()
+      await submitButton(w).trigger('click')
+      await flushPromises()
+      await dialogButton(w, 'Confirmer la soumission').trigger('click')
+      await flushPromises()
+      expect(w.text()).toContain(text)
+      expect(w.get('#step-title').text()).toBe(title)
+      expect(router.currentRoute.value.name).toBe('candidate-application')
+      if (code === 'VERSION_CONFLICT' || code === 'CAMPAIGN_CLOSED')
+        expect(w.text()).toContain('Recharger le brouillon')
+      wrapper?.unmount()
+      wrapper = undefined
+    }
+  })
+
+  it('sends an incomplete application back to the first incomplete step', async () => {
+    const w = await verification()
+    vi.mocked(submissionApi.submit).mockRejectedValue(
+      new ApiError(
+        'APPLICATION_INCOMPLETE',
+        'Incomplet',
+        { phone: 'Renseignez votre numéro de téléphone.', 'document.TRANSCRIPT': 'Ajoutez-le.' },
+        422,
+      ),
+    )
+    await submitButton(w).trigger('click')
+    await flushPromises()
+    await dialogButton(w, 'Confirmer la soumission').trigger('click')
+    await flushPromises()
+    expect(w.get('#step-title').text()).toBe('Vos informations')
+    expect(w.text()).toContain('Votre dossier est incomplet')
+    expect(w.text()).toContain('Renseignez votre numéro de téléphone.')
+  })
+
+  it('redirects a submitted application to its confirmation without creating a draft', async () => {
+    stored.state = 'SUBMITTED'
+    stored.applicationNumber = receipt.applicationNumber
+    vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
+    await page(false)
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('candidate-confirmation')
+    expect(draftApi.create).not.toHaveBeenCalled()
+    expect(documentsApi.list).not.toHaveBeenCalled()
+    expect(analysisApi.current).not.toHaveBeenCalled()
+  })
+
+  it('treats APPLICATION_LOCKED from another tab as a submitted application', async () => {
+    const w = await verification()
+    vi.mocked(submissionApi.submit).mockRejectedValue(
+      new ApiError('APPLICATION_LOCKED', 'Soumise', {}, 409),
+    )
+    stored.state = 'SUBMITTED'
+    vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
+    await submitButton(w).trigger('click')
+    await flushPromises()
+    await dialogButton(w, 'Confirmer la soumission').trigger('click')
+    await flushPromises()
+    expect(router.currentRoute.value.name).toBe('candidate-confirmation')
   })
 })

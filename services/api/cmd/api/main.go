@@ -22,6 +22,7 @@ import (
 	"ifri-admissions/services/api/internal/modules/documents"
 	"ifri-admissions/services/api/internal/modules/drafts"
 	"ifri-admissions/services/api/internal/modules/references"
+	"ifri-admissions/services/api/internal/modules/submissions"
 	"ifri-admissions/services/api/internal/platform/database"
 	"ifri-admissions/services/api/internal/platform/httpserver"
 	"ifri-admissions/services/api/internal/platform/pdfcheck"
@@ -120,6 +121,7 @@ func run(logger *slog.Logger) error {
 		references.Register(mux, references.NewService(references.NewRepository(pool)), logger)
 		drafts.Register(mux, drafts.NewRepository(pool), c.DraftSessionTTL, c.FrontendOrigin, c.Environment == "production", logger)
 		documents.Register(mux, documents.NewService(documents.NewRepository(pool), objects, pdfcheck.QPDF{}, c.DocumentMaxBytes, logger), c.FrontendOrigin, c.Environment == "production", logger)
+		submissions.Register(mux, &submissions.Repository{Pool: pool, Logger: logger}, c.FrontendOrigin, c.Environment == "production", logger)
 	})
 	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 75 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
 	listener, err := net.Listen("tcp", server.Addr)

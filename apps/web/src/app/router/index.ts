@@ -10,5 +10,10 @@ export const router = createRouter({
       name: 'candidate-application',
       component: () => import('@/pages/CandidateApplicationPage.vue'),
     },
+    {
+      path: '/candidature/confirmation',
+      name: 'candidate-confirmation',
+      component: () => import('@/pages/SubmissionConfirmationPage.vue'),
+    },
   ],
 })

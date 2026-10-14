@@ -32,7 +32,17 @@ var (
 	ErrConflict   = problem(409, "DRAFT_CONFLICT", "Le brouillon a changé dans un autre onglet. Rechargez-le avant de continuer.")
 	ErrClosed     = problem(409, "CAMPAIGN_NOT_OPEN", "Les candidatures ne sont actuellement pas ouvertes pour cette campagne.")
 	ErrIneligible = problem(422, "APPLICATION_NOT_ELIGIBLE", "Cette filière n’est pas accessible avec votre qualification.")
+	ErrLocked     = problem(409, "APPLICATION_LOCKED", "Votre candidature a été soumise : elle ne peut plus être modifiée.")
 )
+
+// Editable refuses every candidate operation except the two receipt reads once the
+// application has left DRAFT; callers check it before the optimistic version.
+func Editable(d Draft) error {
+	if d.State != "DRAFT" {
+		return ErrLocked
+	}
+	return nil
+}
 
 type Profile struct {
 	LastName   string `json:"lastName"`
@@ -41,16 +51,18 @@ type Profile struct {
 	Phone      string `json:"phone"`
 }
 type Draft struct {
-	ID               string                    `json:"id"`
-	Profile          Profile                   `json:"profile"`
-	Campaign         references.Campaign       `json:"campaign"`
-	Qualification    *references.Qualification `json:"qualification"`
-	GraduationYear   *int                      `json:"graduationYear"`
-	Program          *references.Program       `json:"program"`
-	State            string                    `json:"state"`
-	Version          int64                     `json:"version"`
-	UpdatedAt        time.Time                 `json:"updatedAt"`
-	SessionExpiresAt time.Time                 `json:"sessionExpiresAt"`
+	ID                string                    `json:"id"`
+	Profile           Profile                   `json:"profile"`
+	Campaign          references.Campaign       `json:"campaign"`
+	Qualification     *references.Qualification `json:"qualification"`
+	GraduationYear    *int                      `json:"graduationYear"`
+	Program           *references.Program       `json:"program"`
+	State             string                    `json:"state"`
+	ApplicationNumber *string                   `json:"applicationNumber"`
+	SubmittedAt       *time.Time                `json:"submittedAt"`
+	Version           int64                     `json:"version"`
+	UpdatedAt         time.Time                 `json:"updatedAt"`
+	SessionExpiresAt  time.Time                 `json:"sessionExpiresAt"`
 }
 type Change struct {
 	Version        int64    `json:"version"`

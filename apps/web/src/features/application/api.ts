@@ -32,6 +32,8 @@ export interface Draft {
   graduationYear: number | null
   program: Program | null
   state: string
+  applicationNumber?: string | null
+  submittedAt?: string | null
   version: number
   updatedAt: string
   sessionExpiresAt: string

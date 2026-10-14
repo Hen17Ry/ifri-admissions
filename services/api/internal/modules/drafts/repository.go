@@ -22,7 +22,7 @@ func NewRepository(pool *pgxpool.Pool) *PostgresRepository { return &PostgresRep
 
 const readDraft = `SELECT a.id::text,c.last_name,c.first_names,c.email,c.phone,
  campaign.id::text,campaign.code,campaign.name,campaign.academic_year,campaign.starts_at,campaign.ends_at,campaign.status,
- q.code,q.label,q.family,a.graduation_year,p.code,p.name,a.state,a.version,a.updated_at,s.expires_at,s.revoked_at
+ q.code,q.label,q.family,a.graduation_year,p.code,p.name,a.state,a.application_number,a.submitted_at,a.version,a.updated_at,s.expires_at,s.revoked_at
  FROM application_draft_sessions s JOIN applications a ON a.id=s.application_id
  JOIN candidates c ON c.id=a.candidate_id JOIN admission_campaigns campaign ON campaign.id=a.campaign_id
  LEFT JOIN origin_qualifications q ON q.id=a.origin_qualification_id
@@ -38,7 +38,7 @@ func Read(ctx context.Context, db references.Queryer, hash []byte, lock bool) (D
 	var d Draft
 	var qcode, qname, qfamily, pcode, pname *string
 	var revoked *time.Time
-	err := db.QueryRow(ctx, query, hash).Scan(&d.ID, &d.Profile.LastName, &d.Profile.FirstNames, &d.Profile.Email, &d.Profile.Phone, &d.Campaign.ID, &d.Campaign.Code, &d.Campaign.Name, &d.Campaign.AcademicYear, &d.Campaign.StartsAt, &d.Campaign.EndsAt, &d.Campaign.Status, &qcode, &qname, &qfamily, &d.GraduationYear, &pcode, &pname, &d.State, &d.Version, &d.UpdatedAt, &d.SessionExpiresAt, &revoked)
+	err := db.QueryRow(ctx, query, hash).Scan(&d.ID, &d.Profile.LastName, &d.Profile.FirstNames, &d.Profile.Email, &d.Profile.Phone, &d.Campaign.ID, &d.Campaign.Code, &d.Campaign.Name, &d.Campaign.AcademicYear, &d.Campaign.StartsAt, &d.Campaign.EndsAt, &d.Campaign.Status, &qcode, &qname, &qfamily, &d.GraduationYear, &pcode, &pname, &d.State, &d.ApplicationNumber, &d.SubmittedAt, &d.Version, &d.UpdatedAt, &d.SessionExpiresAt, &revoked)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return d, ErrSession
 	}
@@ -109,8 +109,8 @@ func (r *PostgresRepository) Update(ctx context.Context, hash []byte, kind strin
 	if err != nil {
 		return Draft{}, err
 	}
-	if d.State != "DRAFT" {
-		return Draft{}, problem(409, "DRAFT_NOT_EDITABLE", "Ce brouillon ne peut plus être modifié.")
+	if err = Editable(d); err != nil {
+		return Draft{}, err
 	}
 	if d.Version != input.Version {
 		return Draft{}, ErrConflict

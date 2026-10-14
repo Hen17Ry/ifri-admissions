@@ -10,7 +10,7 @@ Recherches UI UX Pro Max réellement exécutées : university admissions applica
 - Radios natives dans des cartes à grande cible ; select natif pour sept qualifications, sans combobox complexe. Tous les champs ont labels/aides/erreurs reliés. Navigation native clavier conservée.
 - Résumé d’erreurs lié aux champs et focus première erreur après validation ; titre focalisable aux changements d’étape. Une région status pour sauvegarde, aucun toast répété.
 - Autosave après pause 800 ms pour valeurs valides ; écritures sérialisées, validation d’étape attend la sauvegarde. Enregistrement / Enregistré / Modifications non enregistrées explicites. Retour sans perte de saisie, backend source de vérité.
-- Aucun quota affiché, aucune promesse d’admission. Vérification = récapitulatif du brouillon, sans bouton de soumission.
+- Aucun quota affiché, aucune promesse d’admission. Vérification = récapitulatif du brouillon, sans bouton de soumission (jusqu'à la phase 5.1 ; soumission ajoutée en phase 6, voir plus bas).
 - Skeleton statique, chargement nommé, erreurs réseau avec réessai explicite, campagne fermée sans formulaire, expiration expliquée sans retry automatique.
 - Transitions couleur/opacity seulement, 150 ms du master ; reduced-motion déjà global. Pas de mouvement de panneaux ou de GSAP.
 
@@ -41,3 +41,31 @@ Cinq étapes : informations, parcours, filière, Documents, Vérification. La se
 Recherches UI UX Pro Max exécutées : inline document analysis / async status inside file card, inline extracted data confirmation / document verification ; recherche ciblée async status aria live → Contextual Live Badge Updates, retenue : annonce contextuelle polie, atomique, sans déplacement de focus. Vue async polling watch cleanup → watchers sur sources explicites et nettoyage à l’unmount, retenus. Recherche progressive disclosure upload n’a pas de correspondance vérifiée spécifique ; adaptation produit : le résultat apparaît seulement après dépôt, dans sa destination documentaire. Confirmation Messages et erreurs proches de leur contexte retenus. Master inchangé.
 
 Polling automatique au montage de la version courante, renouvelé après upload/remplacement, suspendu pendant une mutation de documents et en arrière-plan. Arrêt terminal ; lecture réseau répétable, aucun retry OCR manuel. Résultats en lecture seule, actions oui/non sans choix précoché. Rejet reste dans Documents et exige nouvelle version. Sur petit écran : matière flexible, valeurs numériques non coupées ; tableau sémantique, sans inputs. Aucun focus forcé à la fin du polling.
+
+## Adaptations Soumission et récépissé — phase 6
+
+Master inchangé. Recherches UI UX Pro Max exécutées :
+- `ux` : confirmation dialog destructive irreversible action → Confirmation Dialogs, Confirmation Messages ; modal focus trap escape restore focus → Focus States, Focus Appearance, Focus Not Obscured ; submit button loading double submission → Loading Buttons, Submit Feedback ; success confirmation receipt reference number → Success Feedback ; status announcement aria live → Contextual Live Badge Updates ;
+- `vue` : dialog teleport focus → focus dans `onMounted`/après rendu, tests de comportement ;
+- `product` : university admissions application submission receipt → Grant/Funding Portal, Accessible & Ethical + Minimalism, cohérent avec le master.
+
+Aucune correspondance pour clipboard, print ou print stylesheet (domaines `ux` et `html-tailwind`) : les choix ci-dessous sont des décisions produit. Résultats haptiques et feedback IA écartés.
+
+- **Vérification** : le récapitulatif existant est conservé, sans moyenne. Un bloc « Soumission définitive » (bordure gauche marine, même langage que les alertes) explique l'irréversibilité avant l'action principale unique « Soumettre ma candidature » (icône Lucide `Send`).
+- **Dialogue** : `<dialog>` natif ouvert par `showModal()`.
+  - Fond inerte, focus piégé, fond `rgba(15,23,42,0.5)`, rayon 12 px et ombre d'overlay du master, aucune animation.
+  - Rôle `alertdialog`, titre et description liés, focus initial sur « Annuler » (action sûre), Escape et Annuler ferment, focus restitué au bouton d'origine.
+  - Pendant l'envoi : « Soumission en cours… », boutons désactivés, `aria-busy`, Escape bloqué.
+  - Mobile : boutons pleine largeur, confirmation au-dessus d'Annuler.
+- **Erreurs** : une seule alerte focalisable sous le titre d'étape, message par code et action utile (retour à l'étape concernée ou rechargement), sans toast.
+- **Confirmation** :
+  - statut « Candidature soumise » en vert succès accompagné d'une icône et d'un texte, jamais la couleur seule ;
+  - titre focalisé à l'arrivée ;
+  - numéro en Lexend 700, chiffres tabulaires, `user-select: all`, sur une ligne dès 375 px (taille fluide 20–32 px), retour à la ligne seulement à fort zoom ;
+  - « Copier le numéro » (action principale) et « Imprimer le récépissé » (secondaire) ; résultat de la copie annoncé dans une région `status` polie et atomique, repli explicite si le presse-papiers est refusé ;
+  - détails en liste de définitions, conseil de conservation avec la date limite de consultation ;
+  - aucun bouton de modification, aucune promesse d'admission.
+- **Impression** : la page sert de récépissé. Boutons et lien d'évitement masqués, numéro encadré sur une ligne, texte foncé sur blanc, `break-inside: avoid` sur le numéro et les détails, marges `@page` de 18 mm. Contrôle visuel fait à largeur A4 (794 px).
+- **Session terminée ou expirée** : message rassurant (la candidature reste enregistrée) et conseil de conserver le numéro, sans relancer de brouillon.
+
+Inspiration de composition : aucune reprise 21st.dev pour cette phase ; contrôles natifs et composants Vue existants.

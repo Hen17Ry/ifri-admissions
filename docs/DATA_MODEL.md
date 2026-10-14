@@ -130,3 +130,36 @@ Instruction utilisateur prioritaire : quand Σ Coeff, Σ Points et Σ Sur lus co
 Parseur : virgule décimale et séparateur final isolé acceptés (`18.`, `80 .`), sans assembler des chiffres séparés. Le contrôle Sur/Coeff ne dépend plus de la lisibilité de Note. Les noyaux morphologiques longs suppriment les traits sur chaque cellule avant agrandissement ; les crops de données ont une marge symétrique autour de leur propre bande, y compris Anglais, sans remonter à l'en-tête. Seuils de confiance inchangés.
 
 Dernier run privé : 40,398 s, NEEDS_REVIEW, 8 rangées correctement isolées ; les notes et totaux restent insuffisants. La nouvelle correction attend son run OCR réel. Validation locale avant relance : 74 tests Python et Go tests PASS ; aucune précision réelle déclarée acquise.
+
+## Phase 6 — soumission, numéro et snapshot (migration 00006)
+
+Migration `00006_application_submissions.sql` ; les migrations 00001–00005 sont inchangées. Contrat et transaction : SUBMISSION_WORKFLOW ; décisions : ADR 083–094.
+
+- **`admission_campaigns.numbering_year`** (`smallint NOT NULL`, 2000–9999) : année des numéros de la campagne, remplie pour les campagnes existantes à partir de `starts_at` en heure de Porto-Novo.
+- **`applications`** :
+  - `application_number` (UNIQUE, format `^IFRI-[0-9]{4}-[A-Z][A-Z0-9_]{0,63}-[0-9]{6}$`) et `submitted_at` ;
+  - CHECK `DRAFT` ⇒ ni numéro ni date, `SUBMITTED` ⇒ numéro et date ;
+  - contrainte différée `SUBMITTED` ⇒ snapshot complet et cohérent ;
+  - trigger : une ligne non `DRAFT` refuse toute modification ou suppression, ainsi que son candidat, ses documents et ses versions de document.
+- **`application_number_counters`** (`numbering_year`, `program_id`) → `last_serial` (1–999 999), modifiable seulement par incrément de 1.
+- **`application_submissions`** (une par application) :
+  - contexte : campagne, offre, programme, qualification, année d'obtention ;
+  - identité copiée : nom, prénoms, email, téléphone ;
+  - références : grille, analyse (unique), version et SHA-256 du relevé ;
+  - calcul : `weighted_sum` et `coefficient_sum` exactes, `average numeric(32,30)` tronquée, `average_is_exact`, `calculation_version` ;
+  - `validation_path` ;
+  - index par campagne sur l'email, le téléphone et le SHA-256 du relevé.
+- **`application_submission_subjects`** : par matière, référence vers la ligne extraite (unique), code et libellé, position, valeurs brutes et retenues, `validation_method` (`DIRECT_READ`, `ROW_ARITHMETIC`, `TABLE_TOTALS`), `reconstructed_cells` (`points`, `scale`).
+- **`application_submission_documents`** : type, version de document (unique) et SHA-256 des quatre pièces soumises.
+- **`application_submission_flags`** : code (`DUPLICATE_EMAIL`, `DUPLICATE_PHONE`, `DUPLICATE_TRANSCRIPT`, `SERIES_UNREADABLE`) et `related_application_id`, obligatoire pour un doublon ; unicité `NULLS NOT DISTINCT`.
+- **`audit_events`** : `event_type`, `actor_type` (CANDIDATE, ADMIN, SYSTEM), `actor_id` nullable, `target_type` et `target_id`, `metadata` JSON objet, `occurred_at`.
+
+Immuabilité (triggers) :
+- tables de snapshot, drapeaux et audit : UPDATE, DELETE et TRUNCATE refusés ;
+- analyse référencée par une soumission : aucune modification ;
+- `ocr_extracted_subjects` : insertion refusée après le résultat ou la décision du candidat, TRUNCATE refusé ;
+- copies vérifiées à l'insertion : une matière doit être identique à la ligne extraite, un document doit être la version courante.
+
+`refresh_transcript_analysis` s'arrête désormais hors `DRAFT` ; le reste de la fonction est identique. Le down refuse s'il existe des soumissions, des compteurs, des événements d'audit ou une application non `DRAFT`, puis restaure la fonction de la phase 5.
+
+Statuts administratifs futurs (phase 8) : table séparée et historisée, jamais une colonne modifiable d'`applications` (ADR 088).

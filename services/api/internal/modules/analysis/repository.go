@@ -41,6 +41,9 @@ func (r Repository) Current(ctx context.Context, hash []byte) (View, error) {
 	if err != nil {
 		return View{}, err
 	}
+	if err = drafts.Editable(d); err != nil {
+		return View{}, err
+	}
 	return r.view(ctx, r.Pool, d.ID)
 }
 func (r Repository) view(ctx context.Context, q references.Queryer, app string) (View, error) {
@@ -94,10 +97,13 @@ func (r Repository) Decide(ctx context.Context, hash []byte, id string, version 
 	if err != nil {
 		return View{}, err
 	}
+	if err = drafts.Editable(d); err != nil {
+		return View{}, err
+	}
 	if d.Version != version {
 		return View{}, drafts.ErrConflict
 	}
-	if d.State != "DRAFT" || d.Campaign.Status != "OPEN" || time.Now().Before(d.Campaign.StartsAt) || !time.Now().Before(d.Campaign.EndsAt) {
+	if d.Campaign.Status != "OPEN" || time.Now().Before(d.Campaign.StartsAt) || !time.Now().Before(d.Campaign.EndsAt) {
 		return View{}, drafts.ErrClosed
 	}
 	v, err := r.view(ctx, tx, d.ID)

@@ -127,6 +127,23 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 - [x] Harnais privé et benchmark synthétique relancés : 0 valeur fausse acceptée (18/18 synthétiques ; réel : 2 matières sur 3 validées exactes par leur rangée, la 3ᵉ en revue).
 - [x] Healthcheck du worker trop lent sous charge : bytecode Python précompilé au build (`UV_COMPILE_BYTECODE=1` + `compileall`), import 2,2 s → 0,29 s.
 - [ ] **Avant production** : corpus réel ≥ 10 relevés anonymisés (BAC C, D, E, DT) — dépend de l'IFRI ; seul 1 relevé disponible.
-- [ ] Commit des changements 5.1 (aucun commit effectué par l'agent).
+- [x] Commit des changements 5.1 (fait par l'utilisateur, f38d3fe).
 
-Aucune phase 6 autorisée.
+## Phase 6 — soumission définitive (14 octobre 2026)
+
+- [x] Migration 00006 : `numbering_year` (rempli depuis l'ouverture), numéro et date de soumission, compteur par (année, filière), snapshot, matières, documents, drapeaux, `audit_events` générique, immuabilité par triggers, contraintes « SUBMITTED ⇒ numéro, date, snapshot » ; `refresh_transcript_analysis` corrigé hors DRAFT ; down refusé avec soumissions.
+- [x] Module Go `submissions` : transaction unique, rejeu idempotent, codes distincts, moyenne exacte, numéro, drapeaux, audit sans PII, session en lecture seule prolongée.
+- [x] `APPLICATION_LOCKED` dans brouillons, documents et analyse, avant la version ; CORS du POST de soumission.
+- [x] UI : récapitulatif sans moyenne, dialogue natif `showModal()`, messages par code, retour à Documents sur `ADMISSION_RULES_CHANGED`, page de confirmation (copie, impression, aucune modification), redirection après refresh.
+- [x] Tests : unitaires (calcul, troncature, numéro, méthodes), HTTP, intégration PostgreSQL (préconditions, concurrence réelle, verrouillage, immuabilité, rollback, migrations), Vitest, Playwright jusqu'à `SUBMITTED`.
+- [x] `make check` vert ; SUBMISSION_WORKFLOW et PHASE6_VALIDATION écrits.
+- [ ] Commit des changements de la phase 6 (par l'utilisateur).
+
+### Suites notées pendant la phase 6
+
+- [ ] **Phase 8** : la fiche admin doit afficher le lien de doublon **dans les deux sens** ; la première candidature d'une paire ne porte aucun drapeau (requête sur `related_application_id`).
+- [ ] **Phase 8** : statuts de revue et de sélection dans une table séparée et historisée ; une réouverture éventuelle sera un événement audité, jamais une modification de la ligne `applications` (ADR 088).
+- [ ] **Phase 9** : classement sur la colonne `average` puis, à égalité, sur les fractions exactes par produit en croix (ADR 086) ; règle d'arrondi et de départage IFRI à obtenir.
+- [ ] **Phase 10 ou plus tard** : consultation du récépissé par numéro + code envoyé par email, pour un candidat qui a perdu son cookie ou changé de navigateur.
+- [ ] **Repli manuel** (ADR 092) : politique et seuil d'échecs d'analyse à définir avec l'IFRI avant implémentation.
+- [ ] **Avant production** : `numbering_year` de chaque campagne réelle à confirmer ; politique de doublons à trancher par l'IFRI.

@@ -1,6 +1,7 @@
 -- LOCAL DEVELOPMENT ONLY. Campaign, rules and null quotas; not production configuration.
-INSERT INTO admission_campaigns(code,name,academic_year,starts_at,ends_at,status)
-VALUES ('DEV_LOCAL','DÉMONSTRATION LOCALE — NON OFFICIELLE','DEVELOPMENT','2000-01-01T00:00:00Z','2100-01-01T00:00:00Z','OPEN')
+-- numbering_year follows the opening date, like the migration 00006 backfill.
+INSERT INTO admission_campaigns(code,name,academic_year,numbering_year,starts_at,ends_at,status)
+VALUES ('DEV_LOCAL','DÉMONSTRATION LOCALE — NON OFFICIELLE','DEVELOPMENT',2000,'2000-01-01T00:00:00Z','2100-01-01T00:00:00Z','OPEN')
 ON CONFLICT (code) DO NOTHING;
 INSERT INTO campaign_programs(campaign_id,program_id,available_seats)
 SELECT c.id,p.id,NULL FROM admission_campaigns c CROSS JOIN programs p

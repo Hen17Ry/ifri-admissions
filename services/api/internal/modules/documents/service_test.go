@@ -167,8 +167,15 @@ func TestAuthorizationAndCompleteness(t *testing.T) {
 	}
 	r.err = nil
 	r.d.State = "SUBMITTED"
-	if _, err = s.Upload(context.Background(), nil, 1, "TRANSCRIPT", "x.pdf", "application/pdf", nil); err == nil {
-		t.Fatal("non-draft upload")
+	// Locked before the optimistic version: a stale version still gets APPLICATION_LOCKED.
+	if _, err = s.Upload(context.Background(), nil, 2, "TRANSCRIPT", "x.pdf", "application/pdf", nil); !errors.Is(err, drafts.ErrLocked) {
+		t.Fatal("non-draft upload", err)
+	}
+	if _, err = s.List(context.Background(), nil); !errors.Is(err, drafts.ErrLocked) {
+		t.Fatal("submitted documents still listed", err)
+	}
+	if _, _, err = s.Content(context.Background(), nil, "TRANSCRIPT"); !errors.Is(err, drafts.ErrLocked) {
+		t.Fatal("submitted document still served", err)
 	}
 	r.d.State = "DRAFT"
 	if _, err = s.Upload(context.Background(), nil, 1, "UNKNOWN", "x.pdf", "application/pdf", nil); err == nil {

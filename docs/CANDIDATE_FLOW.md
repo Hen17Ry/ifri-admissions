@@ -1,4 +1,4 @@
-# Parcours candidat — phases 3 à 5
+# Parcours candidat — phases 3 à 6
 
 ## Périmètre
 
@@ -65,3 +65,21 @@ Cinq étapes : Vos informations → Votre parcours → Filière souhaitée → D
 Le composant de lecture suit la version TRANSCRIPT et le contexte académique ; polling au montage pour QUEUED/PROCESSING, arrêt terminal et nettoyage à l’unmount. Refresh restaure sans créer d’analyse. Pendant un autre upload, polling/confirmation sont suspendus pour éviter un conflit local artificiel de version ; à son acquittement, la lecture serveur réactualise la complétude. Données extraites jamais éditables. Confirmation puis quatre documents complets autorisent Vérification via contrôle serveur. Rejet reste dans Documents ; nouvelle version obligatoire. Annonces async polies sans déplacement de focus.
 
 Messages d'échec par code, sans détail technique : `SERIES_MISMATCH` (série du relevé ≠ parcours déclaré : corriger le parcours ou fournir le bon relevé), `RESULT_REJECTED` (contrôles non passés : version plus nette), `GRADE_POINTS_MISMATCH` (note lue ≠ points de la même ligne pour une matière recherchée : version plus nette), `AMBIGUOUS_ROW`, `NEEDS_REVIEW` ; tous terminaux, avec « Remplacer le relevé ». Le suivi automatique s'arrête après 60 lectures (≈ 8 min) avec un message « L'analyse prend plus de temps que prévu » et une action « Actualiser le statut » ; le brouillon reste conservé.
+
+## Phase 6 — soumission définitive
+
+- **Vérification** est la dernière étape (titre « Vérifiez et soumettez »). Elle affiche le récapitulatif complet sans moyenne, les boutons « Modifier … » tant que le dossier est un brouillon, et un bloc « Soumission définitive » avec « Soumettre ma candidature ».
+- **Dialogue natif** `showModal()` : rôle `alertdialog`, focus initial sur « Annuler », Escape, focus restitué. Pendant l'envoi : « Soumission en cours… » et boutons désactivés.
+- **Erreurs** : message en français par code, avec l'action correspondante :
+  - analyse à confirmer ou règles changées → retour à Documents, où la nouvelle analyse doit être confirmée ;
+  - couple devenu inéligible → retour à Filière ;
+  - dossier incomplet → première étape incomplète ;
+  - conflit, campagne close ou session → rechargement ;
+  - réseau → nouvel essai idempotent.
+- **Succès** : `/candidature/confirmation` affiche le numéro, « Copier le numéro », « Imprimer le récépissé », la filière, la date et les conseils de conservation ; la page n'a aucun bouton de modification. La feuille d'impression sert de récépissé.
+- **Après soumission** :
+  - `/candidature` redirige vers la confirmation, après un refresh comme depuis un autre onglet, sans jamais créer de brouillon ;
+  - toutes les mutations et lectures détaillées du candidat renvoient 409 `APPLICATION_LOCKED` ;
+  - la session reste en lecture seule (`GET …/current` et `GET …/current/submission`) jusqu'à la fin de la campagne, au minimum 7 jours.
+
+Contrat HTTP, transaction, numéro et snapshot : SUBMISSION_WORKFLOW.

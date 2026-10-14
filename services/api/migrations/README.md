@@ -13,4 +13,6 @@ Les migrations sont explicites, jamais exécutées au démarrage HTTP. Un verrou
 
 `docker compose exec -T api db down` annule la dernière migration et **supprime les tables et leurs données**. Réserver le rollback aux bases de test ou à une opération explicitement préparée. Ne pas modifier une migration déjà appliquée : ajouter une nouvelle version.
 
+`00006_application_submissions.sql` (phase 6) ajoute numéro, snapshot de soumission, drapeaux, audit et immuabilité. Son down **refuse** de s'exécuter s'il existe une soumission, un compteur de numéros, un événement d'audit ou une application non `DRAFT` : il ne détruit jamais de soumission en silence.
+
 Les tests `-tags=integration` créent un schéma temporaire unique sur PostgreSQL réel, appliquent Up, seed deux fois, vérifient contraintes/matrice puis Down/Up ; seul ce schéma est supprimé. Aucun candidat ou document créé.

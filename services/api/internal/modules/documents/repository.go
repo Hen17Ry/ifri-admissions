@@ -62,8 +62,8 @@ func (r *PostgresRepository) Save(ctx context.Context, hash []byte, applicationV
 	if err != nil {
 		return err
 	}
-	if d.State != "DRAFT" {
-		return issue(409, "DRAFT_NOT_EDITABLE", "Ce dossier ne peut plus être modifié.")
+	if err = drafts.Editable(d); err != nil {
+		return err
 	}
 	if d.Version != applicationVersion {
 		return drafts.ErrConflict

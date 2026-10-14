@@ -4,7 +4,9 @@ import { readFile } from 'node:fs/promises'
 const transcript = path.resolve('../../services/ocr/tests/fixtures/GL-DT_DWM-scan.pdf')
 const pdf = path.resolve('../../services/api/internal/modules/documents/testdata/valid.pdf')
 
-test('real document journey, keyboard, four widths and 200 percent zoom', async ({ page }) => {
+test('real journey to submission, keyboard, four widths, 200 percent zoom and lock', async ({
+  page,
+}) => {
   async function checkpoint(name: string) {
     for (const width of [375, 768, 1024, 1440]) {
       await page.setViewportSize({ width, height: 950 })
@@ -147,15 +149,110 @@ test('real document journey, keyboard, four widths and 200 percent zoom', async 
   await page.getByRole('button', { name: 'Oui, les informations sont correctes' }).click()
   await expect(page.getByText('Informations du relevé confirmées', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Voir le récapitulatif', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Vérifiez votre brouillon' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vérifiez et soumettez' })).toBeVisible()
   await page.reload()
-  await expect(page.getByText('Votre candidature reste un brouillon.')).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Soumission définitive' })).toBeVisible()
   await expect(page.getByRole('link', { name: /Voir.*nouvel onglet/ })).toHaveCount(4)
+  await expect(page.getByText(/moyenne/i)).toHaveCount(0)
   await checkpoint('review')
   await page.evaluate(() => {
     document.documentElement.style.zoom = '2'
   })
   await checkpoint('review-zoom200')
+  await page.evaluate(() => {
+    document.documentElement.style.zoom = '1'
+  })
+
+  // Native modal dialog: initial focus on Annuler, focus kept inside, Escape restores focus.
+  const submit = page.getByRole('button', { name: 'Soumettre ma candidature' })
+  await submit.focus()
+  await page.keyboard.press('Enter')
+  const dialog = page.getByRole('alertdialog', { name: 'Soumettre votre candidature ?' })
+  await expect(dialog).toBeVisible()
+  await expect(dialog).toContainText(
+    'Après soumission, vous ne pourrez plus modifier votre candidature',
+  )
+  await expect(dialog.getByRole('button', { name: 'Annuler' })).toBeFocused()
+  await page.keyboard.press('Tab')
+  await expect(dialog.getByRole('button', { name: 'Confirmer la soumission' })).toBeFocused()
+  await checkpoint('submit-dialog')
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  await expect(submit).toBeFocused()
+
+  await submit.click()
+  const submitted = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/v1/applications/drafts/current/submission' &&
+      response.request().method() === 'POST',
+  )
+  await dialog.getByRole('button', { name: 'Confirmer la soumission' }).click()
+  expect((await submitted).status()).toBe(200)
+  await expect(page).toHaveURL(/\/candidature\/confirmation$/)
+  const number = page.locator('#application-number')
+  await expect(number).toHaveText(/^IFRI-\d{4}-GL-\d{6}$/)
+  const value = (await number.textContent())!
+  await expect(page.getByText('Génie Logiciel')).toBeVisible()
+  await expect(page.getByRole('button', { name: /Modifier/ })).toHaveCount(0)
+  await expect(page.getByText(/moyenne/i)).toHaveCount(0)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.getByRole('button', { name: 'Copier le numéro' }).click()
+  await expect(page.getByRole('status').filter({ hasText: 'Numéro copié' })).toBeVisible()
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toBe(value)
+  await checkpoint('confirmation')
+  // One line for the number down to 375 px: never split at a hyphen when copied by hand.
+  expect(
+    await number.evaluate(
+      (element) =>
+        element.getBoundingClientRect().height < 2 * parseFloat(getComputedStyle(element).fontSize),
+    ),
+  ).toBe(true)
+  // Printable receipt, at the width of an A4 page (210 mm at 96 dpi).
+  await page.setViewportSize({ width: 794, height: 1123 })
+  await page.emulateMedia({ media: 'print' })
+  await expect(page.getByRole('button', { name: 'Copier le numéro' })).toBeHidden()
+  await expect(number).toBeVisible()
+  await page.screenshot({ path: 'browser-artifacts/confirmation-print.png', fullPage: true })
+  await page.emulateMedia({ media: 'screen' })
+  await page.setViewportSize({ width: 375, height: 950 })
+
+  // Refresh, then the draft URL: both lead back to the same receipt, never to a new draft.
+  await page.reload()
+  await expect(number).toHaveText(value)
+  await page.goto('/candidature')
+  await expect(page).toHaveURL(/\/candidature\/confirmation$/)
+  await expect(number).toHaveText(value)
+
+  // Backend lock: candidate mutations refused, submission replayed with the same number.
+  const origin = 'http://localhost:5173'
+  const refused = await page
+    .context()
+    .request.patch('/api/v1/applications/drafts/current/profile', {
+      headers: { Origin: origin },
+      data: {
+        version: 99,
+        profile: {
+          lastName: 'Modifié',
+          firstNames: 'Après soumission',
+          email: 'late@example.invalid',
+          phone: '+33123456789',
+        },
+      },
+    })
+  expect(refused.status()).toBe(409)
+  expect((await refused.json()).error.code).toBe('APPLICATION_LOCKED')
+  const documentsRead = await page
+    .context()
+    .request.get('/api/v1/applications/drafts/current/documents')
+  expect(documentsRead.status()).toBe(409)
+  const replay = await page
+    .context()
+    .request.post('/api/v1/applications/drafts/current/submission', {
+      headers: { Origin: origin },
+      data: { version: 1 },
+    })
+  expect(replay.status()).toBe(200)
+  expect((await replay.json()).applicationNumber).toBe(value)
 })
 
 test('rejected extraction requires transcript replacement and a fresh analysis', async ({
@@ -242,5 +339,5 @@ test('rejected extraction requires transcript replacement and a fresh analysis',
   await page.getByRole('button', { name: 'Oui, les informations sont correctes' }).click()
   await expect(page.getByText('Informations du relevé confirmées', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Voir le récapitulatif', exact: true }).click()
-  await expect(page.getByRole('heading', { name: 'Vérifiez votre brouillon' })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Vérifiez et soumettez' })).toBeVisible()
 })

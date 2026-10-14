@@ -580,3 +580,177 @@ h2,
     white-space: nowrap;
   }
 }
+
+/* Phase 6 — submission, confirmation dialog and printable receipt. */
+.submit-panel {
+  margin-top: 32px;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-left: 4px solid var(--color-primary);
+  border-radius: 6px;
+}
+.submit-panel h3 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 18px;
+}
+.confirm-dialog {
+  width: min(480px, calc(100vw - 32px));
+  margin: auto;
+  padding: 24px;
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+  background: var(--color-surface);
+  color: var(--color-foreground);
+  box-shadow: 0 8px 24px rgba(15, 23, 42, 0.12);
+  overflow-wrap: anywhere;
+}
+.confirm-dialog::backdrop {
+  background: rgba(15, 23, 42, 0.5);
+}
+.confirm-dialog-title {
+  font-size: 20px;
+  font-weight: 600;
+}
+.confirm-dialog-actions {
+  display: flex;
+  flex-wrap: wrap-reverse;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 24px;
+}
+/* On a narrow screen both actions take the full width, the confirmation above Annuler. */
+.confirm-dialog-actions button {
+  flex: 1 1 auto;
+}
+.receipt {
+  max-width: 760px;
+}
+.receipt h1 {
+  font-size: 32px;
+  line-height: 1.25;
+  font-weight: 600;
+  margin: 12px 0 8px;
+  text-wrap: balance;
+}
+.receipt h2 {
+  font-family: var(--font-heading);
+  font-size: 18px;
+  font-weight: 600;
+}
+.receipt-status {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-success);
+  font-weight: 600;
+}
+.receipt-number-block {
+  margin-top: 32px;
+  padding: 24px;
+  background: var(--color-surface);
+  border: 1px solid var(--color-divider);
+  border-radius: 12px;
+}
+.receipt-number {
+  margin-top: 8px;
+  font-family: var(--font-heading);
+  /* Sized to keep the number on one line from 375 px; it only wraps at high zoom. */
+  font-size: clamp(20px, 5.6vw, 32px);
+  font-weight: 700;
+  color: var(--color-primary);
+  font-variant-numeric: tabular-nums;
+  overflow-wrap: anywhere;
+  user-select: all;
+}
+.receipt-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 16px;
+}
+.copy-status {
+  margin-top: 8px;
+  min-height: 24px;
+  color: var(--color-on-muted);
+  font-size: 14px;
+}
+.receipt-details {
+  display: grid;
+  gap: 16px;
+  margin-top: 32px;
+}
+.receipt-details dt {
+  color: var(--color-on-muted);
+  font-size: 14px;
+}
+.receipt-details dd {
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+.receipt-advice {
+  margin-top: 32px;
+  padding-top: 24px;
+  border-top: 1px solid var(--color-divider);
+  max-width: 65ch;
+}
+@media (max-width: 479px) {
+  .receipt-number-block {
+    padding: 16px;
+  }
+}
+@media (min-width: 768px) {
+  .receipt-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+/* The confirmation page doubles as the receipt: one sober page, no controls, no colour fill. */
+@media print {
+  @page {
+    margin: 18mm;
+  }
+  body {
+    background: var(--color-surface);
+    color: var(--color-foreground);
+    font-size: 12pt;
+  }
+  .skip-link,
+  .no-print {
+    display: none !important;
+  }
+  .candidate-header-inner,
+  .candidate-main {
+    padding: 0 0 12pt;
+    max-width: none;
+  }
+  .candidate-main {
+    padding-top: 18pt;
+  }
+  .candidate-footer {
+    padding: 12pt 0 0;
+    text-align: left;
+  }
+  .receipt {
+    max-width: none;
+  }
+  .receipt h1 {
+    font-size: 20pt;
+  }
+  .receipt-number-block {
+    border: 2px solid var(--color-foreground);
+    break-inside: avoid;
+  }
+  .receipt-number {
+    color: var(--color-foreground);
+    font-size: 24pt;
+    white-space: nowrap;
+  }
+  .receipt-status {
+    color: var(--color-foreground);
+  }
+  .receipt-details {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    break-inside: avoid;
+  }
+}

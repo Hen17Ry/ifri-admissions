@@ -165,7 +165,7 @@ func TestPostgresReferences(t *testing.T) {
 		}
 	})
 	t.Run("explicit refusal and campaign isolation", func(t *testing.T) {
-		_, err := pool.Exec(ctx, `INSERT INTO admission_campaigns(code,name,academic_year,starts_at,ends_at,status) VALUES ('TEST_OTHER','Test only','Test','2000-01-01','2100-01-01','OPEN');
+		_, err := pool.Exec(ctx, `INSERT INTO admission_campaigns(code,name,academic_year,numbering_year,starts_at,ends_at,status) VALUES ('TEST_OTHER','Test only','Test',2000,'2000-01-01','2100-01-01','OPEN');
   INSERT INTO campaign_programs(campaign_id,program_id,available_seats) SELECT c.id,p.id,0 FROM admission_campaigns c CROSS JOIN programs p WHERE c.code='TEST_OTHER' AND p.code='GL';
   INSERT INTO rule_set_versions(campaign_program_id,version,source,status) SELECT cp.id,1,'Test fixture','DRAFT' FROM campaign_programs cp JOIN admission_campaigns c ON c.id=cp.campaign_id WHERE c.code='TEST_OTHER';
   INSERT INTO program_qualification_eligibilities(rule_set_version_id,origin_qualification_id,eligible) SELECT v.id,q.id,q.code='BAC_C' FROM rule_set_versions v JOIN campaign_programs cp ON cp.id=v.campaign_program_id JOIN admission_campaigns c ON c.id=cp.campaign_id CROSS JOIN origin_qualifications q WHERE c.code='TEST_OTHER' AND q.code IN ('BAC_C','DT_DWM');
@@ -220,7 +220,7 @@ func TestPostgresReferences(t *testing.T) {
 	t.Run("database constraints", func(t *testing.T) {
 		checks := []struct{ name, statement, code string }{
 			{"duplicate program", `INSERT INTO programs(code,name) VALUES ('GL','Duplicate')`, "23505"},
-			{"invalid dates", `INSERT INTO admission_campaigns(code,name,academic_year,starts_at,ends_at,status) VALUES ('BAD_DATE','Test','Test',now(),now(),'OPEN')`, "23514"},
+			{"invalid dates", `INSERT INTO admission_campaigns(code,name,academic_year,numbering_year,starts_at,ends_at,status) VALUES ('BAD_DATE','Test','Test',2026,now(),now(),'OPEN')`, "23514"},
 			{"invalid campaign status", `UPDATE admission_campaigns SET status='ACTIVE' WHERE code='DEV_LOCAL'`, "23514"},
 			{"negative quota", `UPDATE campaign_programs SET available_seats=-1`, "23514"},
 			{"duplicate offer", `INSERT INTO campaign_programs(campaign_id,program_id) SELECT campaign_id,program_id FROM campaign_programs LIMIT 1`, "23505"},

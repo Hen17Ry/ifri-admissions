@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { ArrowLeft, ArrowRight, Check, LockKeyhole } from 'lucide-vue-next'
+import { useRouter } from 'vue-router'
+import { ArrowLeft, ArrowRight, Check, LockKeyhole, Send } from 'lucide-vue-next'
 import AnalysisStep from '@/features/analysis/AnalysisStep.vue'
 import { analysisApi, type TranscriptAnalysis } from '@/features/analysis/api'
 import CandidateLayout from '@/layouts/CandidateLayout.vue'
@@ -17,9 +18,16 @@ import { documentsApi, type DocumentListing } from '@/features/documents/api'
 import { draftApi, type Draft, type Profile, type Program } from '@/features/application/api'
 import { academicErrors, profileErrors } from '@/features/application/validation'
 import { asApiError, useApplicationStore } from '@/features/application/store'
+import SubmitDialog from '@/features/submission/SubmitDialog.vue'
+import { incompleteStep, submissionApi, submissionMessage } from '@/features/submission/api'
+import { useSubmissionStore } from '@/features/submission/store'
 import { ApiError } from '@/lib/api'
 
+const router = useRouter()
 const store = useApplicationStore()
+const submission = useSubmissionStore()
+const confirmOpen = ref(false)
+const submitting = ref(false)
 const profile = reactive<Profile>({ lastName: '', firstNames: '', email: '', phone: '' })
 const qualification = ref('')
 const year = ref('')
@@ -50,7 +58,7 @@ const titles = [
   'Votre parcours',
   'Filière souhaitée',
   'Documents',
-  'Vérifiez votre brouillon',
+  'Vérifiez et soumettez',
 ]
 const fields: {
   key: keyof Profile
@@ -120,6 +128,7 @@ async function load() {
   errorMessage.value = ''
   errors.value = {}
   await store.restore()
+  if (await leaveIfSubmitted()) return
   if (store.draft && !store.error) {
     await loadDocuments()
     try {
@@ -132,8 +141,15 @@ async function load() {
     await hydrate(store.draft)
   }
 }
+// A submitted application only has its confirmation page: never a new or editable draft.
+async function leaveIfSubmitted() {
+  if (store.draft?.state !== 'SUBMITTED') return false
+  await router.replace({ name: 'candidate-confirmation' })
+  return true
+}
 async function start() {
   await store.start()
+  if (await leaveIfSubmitted()) return
   if (store.draft && !store.error) {
     await loadDocuments()
     try {
@@ -148,16 +164,16 @@ async function start() {
 }
 function fail(e: unknown) {
   const error = asApiError(e)
+  if (error.code === 'APPLICATION_LOCKED') {
+    // Submitted from another tab: reload, which leads to the confirmation page.
+    void load()
+    return
+  }
   if (error.code === 'TRANSCRIPT_REPLACEMENT_REQUIRED') replacementRequested.value = true
   errorMessage.value = error.message
   errors.value = error.fields
   saveStatus.value = 'Modifications non enregistrées'
-  if (
-    error.status === 401 ||
-    error.code === 'DRAFT_CONFLICT' ||
-    error.code === 'CAMPAIGN_NOT_OPEN' ||
-    error.code === 'DRAFT_NOT_EDITABLE'
-  )
+  if (error.status === 401 || error.code === 'DRAFT_CONFLICT' || error.code === 'CAMPAIGN_NOT_OPEN')
     sessionLocked.value = true
 }
 function persist(kind: string): Promise<void> {
@@ -271,7 +287,11 @@ async function loadDocuments() {
     documents.value = list
   } catch (e) {
     documentsError.value = asApiError(e).message
-    if (asApiError(e).status === 401 || asApiError(e).code === 'DRAFT_CONFLICT') fail(e)
+    if (
+      asApiError(e).status === 401 ||
+      ['DRAFT_CONFLICT', 'APPLICATION_LOCKED'].includes(asApiError(e).code)
+    )
+      fail(e)
   } finally {
     documentsLoading.value = false
   }
@@ -354,6 +374,59 @@ async function replaceTranscript() {
   await nextTick()
   document.getElementById('file-TRANSCRIPT')?.focus()
 }
+async function submitApplication() {
+  if (!store.draft || submitting.value) return
+  submitting.value = true
+  try {
+    submission.receipt = await submissionApi.submit(store.draft.version)
+    await router.replace({ name: 'candidate-confirmation' })
+  } catch (e) {
+    confirmOpen.value = false
+    await submissionFailed(asApiError(e))
+  } finally {
+    submitting.value = false
+  }
+}
+async function submissionFailed(error: ApiError) {
+  if (error.code === 'APPLICATION_LOCKED') {
+    await load()
+    return
+  }
+  const message = submissionMessage(error)
+  if (
+    [
+      'ADMISSION_RULES_CHANGED',
+      'TRANSCRIPT_ANALYSIS_REQUIRED',
+      'TRANSCRIPT_ANALYSIS_OUTDATED',
+    ].includes(error.code)
+  ) {
+    // Back to Documents, where the new analysis is displayed and must be confirmed again.
+    analysis.value = null
+    try {
+      analysis.value = await analysisApi.current()
+    } catch {
+      /* the transcript card shows the analysis state itself */
+    }
+    await goTo(3)
+  } else if (error.code === 'APPLICATION_NOT_ELIGIBLE') {
+    await goTo(2)
+  } else if (error.code === 'APPLICATION_INCOMPLETE') {
+    await goTo(incompleteStep(error.fields))
+    // Form fields get their inline error; missing documents are visible in the Documents step.
+    errors.value = Object.fromEntries(
+      Object.entries(error.fields).filter(([key]) => !key.startsWith('document.')),
+    )
+  } else if (
+    error.status === 401 ||
+    error.code === 'VERSION_CONFLICT' ||
+    error.code === 'CAMPAIGN_CLOSED'
+  ) {
+    sessionLocked.value = true
+  }
+  errorMessage.value = message
+  await nextTick()
+  document.getElementById('step-title')?.focus()
+}
 function beforeUnload(event: BeforeUnloadEvent) {
   if (dirty.value || active.value) event.preventDefault()
 }
@@ -396,10 +469,10 @@ onBeforeUnmount(() => {
         >Votre ancien brouillon n’est plus accessible sur ce navigateur. Aucun nouveau brouillon n’a
         été créé automatiquement.</UiAlert
       >
-      <h2 class="text-xl font-semibold">Quatre étapes, à votre rythme</h2>
+      <h2 class="text-xl font-semibold">Cinq étapes, à votre rythme</h2>
       <p class="muted mt-3">
-        Vos informations, votre parcours, votre filière, puis un récapitulatif. Les étapes
-        complétées sont enregistrées automatiquement.
+        Vos informations, votre parcours, votre filière, vos documents, puis une vérification avant
+        la soumission. Les étapes complétées sont enregistrées automatiquement.
       </p>
       <UiButton class="mt-6" @click="start"
         >Commencer mon brouillon <ArrowRight :size="18" aria-hidden="true"
@@ -610,7 +683,8 @@ onBeforeUnmount(() => {
           </div>
           <div v-else class="mt-6">
             <p class="muted mb-6">
-              Votre brouillon est enregistré. Vous pouvez encore modifier vos informations.
+              Votre brouillon est enregistré. Vérifiez chaque information : vous pouvez encore la
+              modifier avant de soumettre.
             </p>
             <section class="review-section">
               <div class="review-title">
@@ -672,11 +746,29 @@ onBeforeUnmount(() => {
               @changed="reviewAnalysis"
               @failure="fail"
             />
-            <UiAlert title="Votre candidature reste un brouillon." class="mt-6"
-              >Aucune soumission définitive n’est effectuée à cette étape. Vous pouvez fermer cette
-              page et retrouver les informations enregistrées sur ce navigateur tant que votre
-              session est valide.</UiAlert
-            >
+            <section class="submit-panel" aria-labelledby="submit-title">
+              <h3 id="submit-title">Soumission définitive</h3>
+              <p class="mt-2">
+                Après soumission, vous ne pourrez plus modifier votre candidature. Un numéro de
+                candidature vous sera attribué et affiché immédiatement.
+              </p>
+              <UiButton
+                id="submit-application"
+                class="mt-4"
+                :disabled="
+                  active > 0 || sessionLocked || submitting || !analysis?.verificationReady
+                "
+                @click="confirmOpen = true"
+                ><Send :size="18" aria-hidden="true" />Soumettre ma candidature</UiButton
+              >
+            </section>
+            <SubmitDialog
+              :open="confirmOpen"
+              :pending="submitting"
+              :program="store.draft.program?.name"
+              @confirm="submitApplication"
+              @close="confirmOpen = false"
+            />
           </div>
         </section>
         <aside class="flow-help" aria-labelledby="help-title">
@@ -687,8 +779,8 @@ onBeforeUnmount(() => {
             revenir sur votre dossier.
           </p>
           <p class="muted mt-4">
-            Sur un appareil partagé, veillez à protéger votre profil navigateur. Aucun numéro
-            officiel n’est attribué à ce stade.
+            Sur un appareil partagé, veillez à protéger votre profil navigateur. Le numéro de
+            candidature est attribué à la soumission, après la vérification.
           </p>
         </aside>
       </div>

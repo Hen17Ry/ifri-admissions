@@ -97,3 +97,17 @@ func TestDraftCORSPreflight(t *testing.T) {
 		t.Fatal("draft credentials CORS preflight failed")
 	}
 }
+
+func TestSubmissionCORSPreflight(t *testing.T) {
+	handler := New("http://localhost:5173", nil, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	for method, want := range map[string]int{http.MethodPost: 204, http.MethodPatch: 405, http.MethodDelete: 405} {
+		r := httptest.NewRequest(http.MethodOptions, "/api/v1/applications/drafts/current/submission", nil)
+		r.Header.Set("Origin", "http://localhost:5173")
+		r.Header.Set("Access-Control-Request-Method", method)
+		w := httptest.NewRecorder()
+		handler.ServeHTTP(w, r)
+		if w.Code != want {
+			t.Fatalf("%s preflight: got %d, want %d", method, w.Code, want)
+		}
+	}
+}
