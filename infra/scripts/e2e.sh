@@ -4,6 +4,7 @@
 # built for the development stack (never rebuilds) and is destroyed afterwards with its own
 # volumes only: nothing is left in the development database.
 # Usage: infra/scripts/e2e.sh [playwright arguments]
+#   E2E_SYNTHETIC_COUNT=N         synthetic submitted applications generated first (default 5000).
 #   E2E_MEMORY_REPORT=/path/file  samples `docker stats` of every container while tests run.
 set -euo pipefail
 
@@ -31,6 +32,8 @@ cleanup # leftovers of an interrupted run
 compose up -d --no-build --wait --wait-timeout 300 postgres redis minio minio-init api ocr-worker
 compose exec -T api db up
 compose exec -T api db seed
+# About 5,000 synthetic submitted applications (no personal data) for the back-office list.
+compose exec -T api api dev synthetic-applications --count "${E2E_SYNTHETIC_COUNT:-5000}" --confirm
 
 if [ -n "${E2E_MEMORY_REPORT:-}" ]; then
   : >"$E2E_MEMORY_REPORT"

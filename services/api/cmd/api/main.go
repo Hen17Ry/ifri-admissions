@@ -23,6 +23,7 @@ import (
 	"ifri-admissions/services/api/internal/modules/documents"
 	"ifri-admissions/services/api/internal/modules/drafts"
 	"ifri-admissions/services/api/internal/modules/references"
+	"ifri-admissions/services/api/internal/modules/review"
 	"ifri-admissions/services/api/internal/modules/submissions"
 	"ifri-admissions/services/api/internal/platform/database"
 	"ifri-admissions/services/api/internal/platform/httpserver"
@@ -37,6 +38,9 @@ func main() {
 	}
 	if len(os.Args) >= 2 && os.Args[1] == "admin" {
 		os.Exit(adminCommand(os.Args[2:]))
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "dev" {
+		os.Exit(devCommand(os.Args[2:]))
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "api", "environment", os.Getenv("APP_ENV"))
 	if err := run(logger); err != nil {
@@ -103,6 +107,9 @@ func run(logger *slog.Logger) error {
 		return storage.Readiness(c.MinioEndpoint)(ctx)
 	}
 	analysisHandler.RegisterInternal(internal)
+	// OCR proof images: separate stream and worker loop, same private listener.
+	reviewService := &review.Service{Pool: pool, Objects: objects, Cache: cache, Logger: logger}
+	reviewService.RegisterInternal(internal, secret)
 	internalServer := &http.Server{Addr: net.JoinHostPort(c.Host, "8081"), Handler: internal, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second}
 	internalListener, err := net.Listen("tcp", internalServer.Addr)
 	if err != nil {
@@ -122,6 +129,7 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("administration setup failed")
 	}
 	adminService.Pool = pool
+	go reviewService.DispatchProofs(ctx)
 	handler := httpserver.New(c.FrontendOrigin, map[string]httpserver.Check{
 		"postgres": pool.Ping,
 		"redis":    func(ctx context.Context) error { return cache.Ping(ctx).Err() },
@@ -132,7 +140,7 @@ func run(logger *slog.Logger) error {
 		drafts.Register(mux, drafts.NewRepository(pool), c.DraftSessionTTL, c.FrontendOrigin, c.Environment == "production", logger)
 		documents.Register(mux, documents.NewService(documents.NewRepository(pool), objects, pdfcheck.QPDF{}, c.DocumentMaxBytes, logger), c.FrontendOrigin, c.Environment == "production", logger)
 		submissions.Register(mux, &submissions.Repository{Pool: pool, Logger: logger}, c.FrontendOrigin, c.Environment == "production", logger)
-		admin.Register(mux, adminService, c.FrontendOrigin, c.Environment == "production", logger)
+		review.Register(admin.Register(mux, adminService, c.FrontendOrigin, c.Environment == "production", logger), reviewService)
 	})
 	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 75 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
 	listener, err := net.Listen("tcp", server.Addr)

@@ -117,14 +117,18 @@ Comptes, authentification, double authentification, sessions, permissions et aud
 
 Le code vérifie des **permissions**, jamais des noms de rôles. Les rôles sont des constantes Go qui regroupent des permissions ; seules les attributions sont en base (`admin_role_assignments`, historisées, révoquées et jamais modifiées).
 
-| Rôle | Permissions | Périmètre |
-|---|---|---|
-| SUPER_ADMIN | `dashboard.view`, `accounts.read`, `accounts.manage`, `audit.read` | Global |
-| REVIEWER | `dashboard.view`, `applications.read`, `applications.review` | Toutes les filières ou certaines |
-| SELECTION_MANAGER | `dashboard.view`, `applications.read`, `ranking.read`, `ranking.manage`, `selection.validate` | Toutes les filières ou certaines |
-| AUDITOR | `dashboard.view`, `accounts.read`, `audit.read`, `applications.read`, `ranking.read` | Global, lecture seule |
+Rôles IFRI depuis la phase 8 (ADR 109, organigramme dans ADMIN_REVIEW) ; **un seul rôle par compte** (ADR 110, contrôle Go et trigger `guard_single_role`).
 
-- **Permissions futures** : `applications.*`, `ranking.*` et `selection.validate` (phases 8 et 9) sont déclarées dès maintenant. Elles s'appliquent par filière : `Principal.CanFor(perm, programID)` et `Principal.Scope(perm)` serviront aux filtres de la phase 8.
+| Rôle | Libellé | Permissions |
+|---|---|---|
+| SUPER_ADMIN | Administrateur technique | `dashboard.view`, `accounts.read`, `accounts.manage`, `audit.read` — aucun accès aux dossiers |
+| REVIEWER | Agent du secrétariat exécutif | `dashboard.view`, `applications.read`, `review.claim`, `review.decide`, `corrections.propose`, `ranking.read` |
+| REVIEW_LEAD | Responsable du secrétariat exécutif | celles de l'agent + `review.reassign`, `review.revert` |
+| DEPUTY_DIRECTOR | Directeur adjoint | `dashboard.view`, `applications.read`, `corrections.decide`, `ranking.read` |
+| DIRECTOR | Directeur | `dashboard.view`, `applications.read`, `audit.read` (lecture seule), `ranking.read`, `selection.validate` |
+
+- `SELECTION_MANAGER` et `AUDITOR` (phase 7) sont retirés : révoqués par la migration 00008, historique conservé, nouvelle attribution refusée.
+- **Périmètre** : le mécanisme par filière (`Principal.CanFor`, `Principal.Scope`) est conservé mais aucun rôle IFRI n'est limité à une filière ; l'interface n'en propose plus.
 - **Refus par défaut** : toute route admin passe par un registre qui **exige** une permission, ou un marqueur explicite (`public`, `session.any`, étapes du second facteur, `self.manage`).
   - Une route sans permission ne peut pas être enregistrée.
   - Un test parcourt toutes les routes et vérifie, pour chacune et pour chaque rôle, la réponse 401 sans session, 403 sans permission, et l'accès avec permission.

@@ -9,16 +9,15 @@ import UiButton from '@/components/ui/UiButton.vue'
 import UiDialog from '@/components/ui/UiDialog.vue'
 import UiInput from '@/components/ui/UiInput.vue'
 import UiSkeleton from '@/components/ui/UiSkeleton.vue'
-import GrantsEditor from '@/features/admin/components/GrantsEditor.vue'
+import RoleSelector from '@/features/admin/components/RoleSelector.vue'
 import {
   adminApi,
   adminMessage,
-  roleLabels,
+  roleLabel,
   statusLabels,
   type Account,
   type Activation,
   type GrantInput,
-  type Program,
 } from '@/features/admin/api'
 import { useAdminStore } from '@/features/admin/store'
 import { asApiError } from '@/features/application/store'
@@ -27,7 +26,6 @@ type Action = 'disable' | 'enable' | 'reset' | 'link'
 const store = useAdminStore()
 const router = useRouter()
 const accounts = ref<Account[]>([])
-const programs = ref<Program[]>([])
 const loading = ref(true)
 const loadError = ref('')
 const status = ref('')
@@ -96,9 +94,7 @@ async function load() {
   loading.value = true
   loadError.value = ''
   try {
-    const [list, offered] = await Promise.all([adminApi.accounts(), adminApi.programs()])
-    accounts.value = list.accounts
-    programs.value = offered.programs
+    accounts.value = (await adminApi.accounts()).accounts
   } catch (e) {
     if (!(await expired(e))) loadError.value = adminMessage(asApiError(e))
   } finally {
@@ -120,9 +116,7 @@ async function create() {
   formMessage.value = ''
   if (!email.value.trim()) formErrors.value.email = 'Saisissez l’adresse email professionnelle.'
   if (!displayName.value.trim()) formErrors.value.displayName = 'Saisissez le nom affiché.'
-  if (!grants.value.length)
-    formErrors.value.grants =
-      'Attribuez au moins un rôle (et une filière si le périmètre est limité).'
+  if (!grants.value.length) formErrors.value.grants = 'Choisissez le rôle du compte.'
   if (Object.keys(formErrors.value).length) {
     await nextTick()
     document
@@ -131,7 +125,7 @@ async function create() {
           ? 'new-email'
           : formErrors.value.displayName
             ? 'new-name'
-            : 'create-role-SUPER_ADMIN',
+            : 'create-role-REVIEWER',
       )
       ?.focus()
     return
@@ -163,7 +157,7 @@ function openEdit(account: Account) {
 async function saveGrants() {
   if (!editing.value) return
   if (!editGrants.value.length) {
-    actionMessage.value = 'Attribuez au moins un rôle.'
+    actionMessage.value = 'Choisissez le rôle du compte.'
     return
   }
   pending.value = true
@@ -171,9 +165,9 @@ async function saveGrants() {
     const account = await adminApi.setGrants(editing.value.id, editGrants.value)
     replace(account)
     editing.value = null
-    status.value = `Rôles de ${account.displayName} enregistrés ; ses sessions ont été fermées.`
+    status.value = `Rôle de ${account.displayName} enregistré ; ses sessions ont été fermées.`
     if (account.email === store.session?.email) {
-      store.clear('Vos rôles ont changé : reconnectez-vous.')
+      store.clear('Votre rôle a changé : reconnectez-vous.')
       await router.replace({ name: 'admin-login' })
     }
   } catch (e) {
@@ -251,7 +245,7 @@ onMounted(async () => {
         <thead>
           <tr>
             <th scope="col">Compte</th>
-            <th scope="col">Rôles</th>
+            <th scope="col">Rôle</th>
             <th scope="col">Statut</th>
             <th scope="col">Double authentification</th>
             <th scope="col">Dernière connexion</th>
@@ -264,10 +258,10 @@ onMounted(async () => {
               <span class="admin-cell-name">{{ account.displayName }}</span>
               <span class="muted text-sm admin-cell-email">{{ account.email }}</span>
             </th>
-            <td data-label="Rôles">
+            <td data-label="Rôle">
               <ul class="admin-chips">
-                <li v-for="grant in account.grants" :key="grant.role + (grant.program ?? '')">
-                  {{ roleLabels[grant.role] }}{{ grant.program ? ` · ${grant.program}` : '' }}
+                <li v-for="role in new Set(account.grants.map((g) => g.role))" :key="role">
+                  {{ roleLabel(role) }}
                 </li>
               </ul>
             </td>
@@ -289,9 +283,9 @@ onMounted(async () => {
               <div class="admin-row-actions">
                 <UiButton
                   variant="secondary"
-                  :aria-label="`Rôles et périmètre de ${account.displayName}`"
+                  :aria-label="`Rôle de ${account.displayName}`"
                   @click="openEdit(account)"
-                  ><UserCog :size="18" aria-hidden="true" />Rôles</UiButton
+                  ><UserCog :size="18" aria-hidden="true" />Rôle</UiButton
                 >
                 <UiButton
                   v-if="account.status === 'PENDING_ACTIVATION'"
@@ -359,12 +353,7 @@ onMounted(async () => {
               :aria-describedby="slot.describedby"
               :aria-invalid="slot.invalid" /></template
         ></FormField>
-        <GrantsEditor
-          id-prefix="create"
-          :programs="programs"
-          :error="formErrors.grants"
-          @change="grants = $event"
-        />
+        <RoleSelector id-prefix="create" :error="formErrors.grants" @change="grants = $event" />
       </form>
       <template #actions>
         <UiButton variant="secondary" :disabled="pending" @click="creating = false"
@@ -379,17 +368,16 @@ onMounted(async () => {
     <UiDialog
       v-if="manage"
       :open="!!editing"
-      :title="`Rôles et périmètre — ${editing?.displayName ?? ''}`"
+      :title="`Rôle — ${editing?.displayName ?? ''}`"
       :pending="pending"
       @close="editing = null"
     >
       <p class="muted mt-2">Tout changement ferme les sessions ouvertes de ce compte.</p>
       <UiAlert v-if="actionMessage" :title="actionMessage" error class="mt-4" />
-      <GrantsEditor
+      <RoleSelector
         v-if="editing"
         :key="editing.id"
         id-prefix="edit"
-        :programs="programs"
         :initial="editing.grants"
         class="mt-4"
         @change="editGrants = $event"

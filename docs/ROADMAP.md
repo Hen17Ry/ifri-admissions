@@ -14,7 +14,7 @@
 | **5.1** | **Analyse automatique à l'upload + OCR fiable sur relevés réels scannés** | **Clôturée le 14 octobre 2026** — réserve : corpus réel ≥ 10 relevés requis avant la production |
 | **6** | **Moyenne pondérée, soumission atomique, numéro, verrouillage** | **Fait le 14 octobre 2026** (voir PHASE6_VALIDATION) |
 | **7** | **Authentification admin, RBAC, journal d'audit** | **Fait le 14 octobre 2026** (voir PHASE7_VALIDATION) |
-| 8 | Back-office : liste, filtres, dossier, preuves OCR, vérification | À faire |
+| **8** | **Back-office : liste, filtres, dossier, preuves OCR, vérification, corrections** | **Fait le 14 octobre 2026** (voir PHASE8_VALIDATION) |
 | 9 | Classement par filière, quotas, sélection, liste d'attente, exports | À faire |
 | 10 | Mise en production : CI, HTTPS/Nginx, sauvegardes, antivirus, rétention, observabilité | À faire |
 
@@ -27,7 +27,7 @@ Elles bloquent la mise en production, pas le développement. Chaque règle est i
 3. **Arrondi et égalités** : précision de la moyenne et règle de départage en cas d'égalité. (Constat sur un relevé : l'Office du Bac imprime une moyenne tronquée à 2 décimales ; ce n'est pas la règle IFRI.)
 4. **Quotas** : nombre de places par filière et par campagne.
 5. **Formats DT** : obtenir des relevés DT réels (IMI, DWM, EAP, PM) anonymisés ; leur mise en page est encore inconnue.
-6. **Rôles admin** : qui peut vérifier, qui peut valider la sélection finale, faut-il une double validation ?
+6. **Motifs de rejet** : valider ou ajuster la liste provisoire des motifs de rejet d'un dossier (document illisible, document invalide ou erroné, identité non concordante, relevé incohérent, qualification non éligible, candidature en double, suspicion de fraude, autre motif). Ils sont définis à un seul endroit, avec leurs libellés (table `review_rejection_reasons`, ADR 112).
 7. **Dates de campagne** et politique de conservation des documents après la campagne.
 8. **Doublons** : que faire de deux candidatures d'une même campagne avec le même email, le même téléphone ou le même relevé ? Elles sont aujourd'hui signalées à l'administration sans être bloquées.
 9. **Échecs d'analyse répétés** : après combien d'échecs proposer une vérification manuelle du relevé, et qui la fait ? Le modèle de données est prêt (ADR 092).
@@ -69,10 +69,19 @@ Elles bloquent la mise en production, pas le développement. Chaque règle est i
 - [x] Interface `/admin` (UI UX Pro Max, `pages/admin.md`), en-têtes stricts ; Vitest et Playwright (CLI, TOTP, création, activation, désactivation).
 - [x] `make check` vert ; ADMIN_SECURITY et PHASE7_VALIDATION.
 
-## Phases 8 à 10 — périmètre
+## Phase 8 — critères de sortie (14 octobre 2026, voir PHASE8_VALIDATION)
 
-**8. Back-office** : statuts de revue dans une table séparée et historisée, jamais dans `applications` (ADR 088) ; drapeaux de soumission affichés avec le lien dans les deux sens ; tableau par filière (rang, candidat, série, moyenne, statut), recherche par nom, filtres par série et statut, fiche dossier, prévisualisation des PDF, preuves OCR (crop de la ligne extraite à côté des valeurs), statuts administratifs (`EN_VERIFICATION`, `VALIDE`, `REJETE`), correction admin tracée comme un override séparé qui ne modifie jamais le snapshot de soumission.
+- [x] Rôles IFRI (agent, responsable, directeur adjoint, directeur, administrateur technique), un seul rôle par compte contrôlé en Go et par trigger ; `SELECTION_MANAGER` et `AUDITOR` retirés ; `audit.read` pour le Directeur ; alerte de couverture DA / Directeur.
+- [x] Tableau de bord : compteurs filière × statut, corrections en attente, dossiers non pris en charge, mes dossiers.
+- [x] Liste : pagination et tri serveur (moyenne, date, nom), recherche sans accents, par numéro et par email, filtres (filière, série, statut, agent, signalement, correction en attente), moyenne tronquée avec mention ; 5 000 dossiers synthétiques, index, temps mesurés.
+- [x] Dossier : identité, série déclarée et lue, aperçu des 4 PDF par flux authentifié, doublons dans les deux sens, historique, preuves OCR à la demande (file et boucle séparées, version exacte du document, coordonnées stockées).
+- [x] Revue séparée et historisée (`applications.state` inchangé), prise en charge, validation et rejet par l'agent en charge, motif fermé, réattribution et retour arrière par le responsable, crochet de gel, concurrence optimiste.
+- [x] Corrections : proposition par l'agent en charge, décision par le Directeur adjoint seul, quatre yeux, validation bloquée tant qu'une correction attend, snapshot intact, moyenne effective exacte.
+- [x] Audit de chaque consultation (dossier, document, preuve) et de chaque action.
+- [x] Tests Go (matrice, incompatibilités de rôles, concurrence, quatre yeux, moyenne exacte, audit, doublons, performance), Vitest, Playwright (deux agents et un DA, aperçu PDF, preuve OCR) ; `make check` vert ; ADMIN_REVIEW et PHASE8_VALIDATION.
 
-**9. Classement et sélection** : classement par filière sur la moyenne interne non arrondie (colonne à 30 décimales, puis égalité tranchée par produit en croix des fractions exactes, ADR 086), départage selon la règle IFRI, proposition automatique selon les quotas, validation administrative, liste d'attente, gel du classement, exports CSV/PDF.
+## Phases 9 et 10 — périmètre
+
+**9. Classement et sélection** : classement par filière des seuls dossiers `VALIDATED` et admissibles, sur la **moyenne effective** de la revue (ADR 114 : fraction exacte après corrections approuvées ; colonne à 30 décimales, puis égalité tranchée par produit en croix, ADR 086), départage selon la règle IFRI, proposition automatique selon les quotas, validation par le Directeur (`selection.validate`), liste d'attente, gel du classement par `ranking_freezes` (crochet posé en phase 8, ADR 115), exports CSV/PDF.
 
 **10. Production** : CI GitHub (lint, tests, migrations, build des images), Nginx + HTTPS, sauvegardes PostgreSQL et S3 testées par restauration, analyse antivirus et quarantaine des uploads, nettoyage des objets orphelins, rétention, logs structurés et métriques, audit d'accessibilité, test de charge sur la période de clôture, plan de déploiement.

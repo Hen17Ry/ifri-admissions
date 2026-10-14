@@ -180,3 +180,17 @@ Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs 
 - **CLI** : `api admin …` dans le même binaire, sur le serveur seulement.
 - **Vue** : `features/admin` (API avec jeton CSRF en mémoire, store de session Pinia, garde de routeur, composants), `layouts/AdminLayout` et `AdminAuthLayout`, `pages/admin/*`. La garde du routeur ne fait qu'orienter vers le bon écran : l'API décide de tout.
 - **Tests navigateur** : Playwright tourne sur une stack Compose jetable (`infra/scripts/e2e.sh`). Contrat de sécurité : ADMIN_SECURITY.
+
+## Phase 8 — module `review`
+
+- **`internal/modules/review`** :
+  - service de lecture (liste paginée et filtrée côté serveur, dossier, tableau de bord, référentiels de l'interface, flux des PDF) ;
+  - actions de revue et corrections, chacune dans une transaction qui verrouille d'abord la ligne de revue, vérifie version, agent et gel, écrit la nouvelle version, son événement et l'audit ;
+  - preuves OCR (demande, état, image, routes internes du worker, boucle de redistribution) ;
+  - générateur synthétique.
+
+  Les routes sont montées sur le registre admin (`review.Register(admin.Register(…))`) : chacune déclare sa permission.
+- **Moyenne effective** : `submissions.ComputeAverage` (même calcul exact qu'à la soumission) sur les valeurs retenues ; PostgreSQL refait le calcul dans un trigger différé.
+- **Worker** : seconde boucle `ifri_ocr.proofs` (file `ifri:ocr:proofs:v1`, sa propre connexion Redis), indépendante de la boucle d'analyse ; rendu PyMuPDF + OpenCV, aucune décision métier.
+- **CLI** : `api dev synthetic-applications` (développement et test seulement).
+- **Vue** : `features/review` (API, `ProofViewer`), pages `AdminApplicationsPage`, `AdminApplicationPage`, `AdminCorrectionsPage`, tableau de bord réécrit, `RoleSelector` (un rôle par compte). Contrat : ADMIN_REVIEW.

@@ -73,7 +73,7 @@ func (s *Service) View(session *Session) SessionView {
 	if idle.After(session.Absolute) {
 		idle = session.Absolute
 	}
-	return SessionView{Stage: session.Stage, CSRFToken: s.Keys.CSRF(session.TokenHash), Email: p.Email, DisplayName: p.DisplayName,
+	return SessionView{ID: p.UserID, Stage: session.Stage, CSRFToken: s.Keys.CSRF(session.TokenHash), Email: p.Email, DisplayName: p.DisplayName,
 		Permissions: p.Permissions(), Grants: nonNil(p.Grants), IdleExpires: idle, Expires: session.Absolute, MFARequired: s.MFARequired}
 }
 

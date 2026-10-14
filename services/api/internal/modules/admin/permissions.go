@@ -20,38 +20,50 @@ const (
 	PermAccountsRead   Permission = "accounts.read"
 	PermAccountsManage Permission = "accounts.manage"
 	PermAuditRead      Permission = "audit.read"
-	// Declared for phase 8 (review) and phase 9 (ranking, selection); no route uses them yet.
+	// Phase 8: review of submitted applications and administrative corrections.
 	PermApplicationsRead   Permission = "applications.read"
-	PermApplicationsReview Permission = "applications.review"
-	PermRankingRead        Permission = "ranking.read"
-	PermRankingManage      Permission = "ranking.manage"
-	PermSelectionValidate  Permission = "selection.validate"
+	PermReviewClaim        Permission = "review.claim"    // take a dossier "to review"
+	PermReviewDecide       Permission = "review.decide"   // validate or reject a dossier one holds
+	PermReviewReassign     Permission = "review.reassign" // move a dossier to another agent
+	PermReviewRevert       Permission = "review.revert"   // send a decided dossier back to review
+	PermCorrectionsPropose Permission = "corrections.propose"
+	PermCorrectionsDecide  Permission = "corrections.decide"
+	// Declared for phase 9: the ranking is computed automatically, then validated.
+	PermRankingRead       Permission = "ranking.read"
+	PermSelectionValidate Permission = "selection.validate"
 )
 
 type Role string
 
+// IFRI organisation (decisions of the phase 8 brief). One role per account.
 const (
-	RoleSuperAdmin       Role = "SUPER_ADMIN"
-	RoleReviewer         Role = "REVIEWER"
-	RoleSelectionManager Role = "SELECTION_MANAGER"
-	RoleAuditor          Role = "AUDITOR"
+	RoleSuperAdmin     Role = "SUPER_ADMIN"     // technical administrator: accounts and audit, no dossier
+	RoleReviewer       Role = "REVIEWER"        // agent of the executive secretariat
+	RoleReviewLead     Role = "REVIEW_LEAD"     // head of the executive secretariat
+	RoleDeputyDirector Role = "DEPUTY_DIRECTOR" // sole approver of corrections
+	RoleDirector       Role = "DIRECTOR"        // reads everything, validates the final selection
 )
+
+var reviewer = []Permission{PermDashboard, PermApplicationsRead, PermReviewClaim, PermReviewDecide, PermCorrectionsPropose, PermRankingRead}
 
 // RolePermissions is the whole RBAC policy.
 var RolePermissions = map[Role][]Permission{
-	RoleSuperAdmin:       {PermDashboard, PermAccountsRead, PermAccountsManage, PermAuditRead},
-	RoleReviewer:         {PermDashboard, PermApplicationsRead, PermApplicationsReview},
-	RoleSelectionManager: {PermDashboard, PermApplicationsRead, PermRankingRead, PermRankingManage, PermSelectionValidate},
-	RoleAuditor:          {PermDashboard, PermAccountsRead, PermAuditRead, PermApplicationsRead, PermRankingRead},
+	RoleSuperAdmin:     {PermDashboard, PermAccountsRead, PermAccountsManage, PermAuditRead},
+	RoleReviewer:       reviewer,
+	RoleReviewLead:     append(append([]Permission{}, reviewer...), PermReviewReassign, PermReviewRevert),
+	RoleDeputyDirector: {PermDashboard, PermApplicationsRead, PermCorrectionsDecide, PermRankingRead},
+	// The audit holds the technical administrator's own actions: the Director reads it too.
+	RoleDirector: {PermDashboard, PermApplicationsRead, PermAuditRead, PermRankingRead, PermSelectionValidate},
 }
 
-// GlobalRoles can never be limited to programs.
-var GlobalRoles = map[Role]bool{RoleSuperAdmin: true, RoleAuditor: true}
+// GlobalRoles can never be limited to programs. The phase 7 scope mechanism stays available
+// for the agents' roles but the organisation does not use it.
+var GlobalRoles = map[Role]bool{RoleSuperAdmin: true, RoleDeputyDirector: true, RoleDirector: true}
 
 // ProgramScoped permissions apply per program; the others are global by nature.
 var ProgramScoped = map[Permission]bool{
-	PermApplicationsRead: true, PermApplicationsReview: true,
-	PermRankingRead: true, PermRankingManage: true, PermSelectionValidate: true,
+	PermApplicationsRead: true, PermReviewClaim: true, PermReviewDecide: true, PermReviewReassign: true, PermReviewRevert: true,
+	PermCorrectionsPropose: true, PermCorrectionsDecide: true, PermRankingRead: true, PermSelectionValidate: true,
 }
 
 func KnownRole(r Role) bool { _, ok := RolePermissions[r]; return ok }

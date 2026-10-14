@@ -24,3 +24,9 @@ type Objects interface {
 	Get(context.Context, string) (Object, error)
 	Delete(context.Context, string) error
 }
+
+// TypedObjects also writes non-PDF private objects (OCR proof images).
+type TypedObjects interface {
+	Get(context.Context, string) (Object, error)
+	PutContent(context.Context, string, io.Reader, int64, string) error
+}

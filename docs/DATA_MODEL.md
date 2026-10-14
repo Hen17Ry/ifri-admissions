@@ -194,3 +194,21 @@ Migration `00007_admin_security.sql` ; les migrations 00001–00006 sont inchang
 - **`admission_campaigns.numbering_year`** : modification refusée dès qu'un numéro existe dans la campagne.
 
 Les rôles et leurs permissions sont des constantes du code, pas des tables. Les statuts de revue de la phase 8 iront dans une table séparée et historisée (ADR 088). Le down de 00007 refuse de s'exécuter s'il existe un compte administrateur.
+
+## Phase 8 — revue des dossiers soumis (migration 00008)
+
+Migration `00008_application_review.sql` ; 00001–00007 inchangées. Contrat : ADMIN_REVIEW ; décisions : ADR 109–121.
+
+- **Rôles** : `admin_role_assignments.role` accepte `SUPER_ADMIN`, `REVIEWER`, `REVIEW_LEAD`, `DEPUTY_DIRECTOR`, `DIRECTOR` (les anciens `SELECTION_MANAGER` et `AUDITOR` seulement s'ils sont révoqués, ce que fait la migration) ; `SUPER_ADMIN`, `DEPUTY_DIRECTOR` et `DIRECTOR` toujours globaux ; trigger `guard_single_role` : un seul rôle distinct actif par compte.
+- **`review_rejection_reasons`** : code, libellé français, ordre, `enabled` ; huit motifs provisoires ; jamais supprimés.
+- **`application_reviews`** (une par soumission, créée par trigger, backfill des soumissions existantes) :
+  - `status` (`TO_REVIEW`, `IN_REVIEW`, `VALIDATED`, `REJECTED`), `assignee_id`, `rejection_code` + `rejection_comment` (exigés si `REJECTED`), `version` ;
+  - `effective_weighted_sum`, `effective_coefficient_sum` (exactes), `effective_average numeric(32,30)` tronquée, `effective_average_is_exact` ;
+  - chaque UPDATE augmente `version` de 1 et a son événement (trigger différé) ; moyenne revérifiée en SQL (trigger différé) ; ni DELETE ni TRUNCATE.
+- **`application_review_events`** : append-only, unique (`application_id`, `version`), type, acteur, statuts et agents avant/après, motif, commentaire (exigé sauf `CREATED`, `CLAIMED`, `VALIDATED`, `CORRECTION_APPROVED`), `correction_id` ; acteur = agent en charge pour une validation, un rejet ou une proposition.
+- **`application_corrections`** : matière du snapshot, `field` (`GRADE`, `COEFFICIENT`), valeurs d'origine, retenue au moment et proposée (`numeric`, bornes par champ), motif, `proposed_by`, `status` (`PENDING`, `APPROVED`, `REFUSED`), `decided_by` ≠ `proposed_by`, motif de refus obligatoire ; une seule `PENDING` par (dossier, matière, champ) ; transitions gardées ; jamais supprimées.
+- **`ranking_freezes`** + `ranking_frozen(program)` : crochet de gel pour la phase 9 ; une filière gelée refuse toute écriture de revue et de correction.
+- **`ocr_proof_images`** : une par `ocr_extracted_subject_id`, `status` (`PENDING`, `READY`, `FAILED`), `failure_code`, `attempts`, `storage_key` (privée), horodatages.
+- **Recherche** : fonction immuable `ifri_fold(text)` et colonne générée `application_submissions.name_key` ; index sur la date de soumission, l'email, la qualification, le statut, l'agent, la moyenne effective et (filière, statut).
+
+Le snapshot de soumission et `applications.state` ne changent jamais. Le down de 00008 refuse de s'exécuter dès qu'une revue a vécu (événement autre que `CREATED`), ou s'il existe une correction, une preuve, un gel ou une attribution d'un nouveau rôle.

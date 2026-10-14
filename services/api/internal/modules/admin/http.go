@@ -72,6 +72,7 @@ func Register(mux *http.ServeMux, service *Service, origin string, secure bool, 
 	rt.Handle("PUT", b+"/accounts/{id}/grants", PermAccountsManage, h.grants)
 	rt.Handle("POST", b+"/accounts/{id}/mfa/reset", PermAccountsManage, h.resetMFA)
 	rt.Handle("GET", b+"/programs", PermAccountsRead, h.programs)
+	rt.Handle("GET", b+"/accounts/coverage", PermAccountsRead, h.coverage)
 	rt.Handle("GET", b+"/audit-events", PermAuditRead, h.audit)
 	mux.Handle(b+"/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		SecurityHeaders(w.Header(), secure)
@@ -475,3 +476,30 @@ func (h *Handler) audit(w http.ResponseWriter, r *http.Request, _ *Session) {
 	}
 	h.send(w, 200, page)
 }
+
+func (h *Handler) coverage(w http.ResponseWriter, r *http.Request, _ *Session) {
+	c, err := h.service.Coverage(r.Context())
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	h.send(w, 200, c)
+}
+
+// Service exposes the admin service to modules mounting routes on the same router.
+func (rt *Router) Service() *Service { return rt.h.service }
+
+// Fail writes an admin API error (shared by the modules mounted on this router).
+func (rt *Router) Fail(w http.ResponseWriter, err error) { rt.h.fail(w, err) }
+
+// Send writes an admin API JSON response.
+func (rt *Router) Send(w http.ResponseWriter, status int, value any) { rt.h.send(w, status, value) }
+
+// ClientIP is the socket address used for pseudonymised audit metadata.
+func ClientIP(r *http.Request) string { return clientIP(r) }
+
+// Decode reads a bounded JSON body, refusing unknown fields.
+func Decode(w http.ResponseWriter, r *http.Request, value any) error { return decode(w, r, value) }
+
+// NewProblem builds an admin API error.
+func NewProblem(status int, code, message string) *Problem { return problem(status, code, message) }

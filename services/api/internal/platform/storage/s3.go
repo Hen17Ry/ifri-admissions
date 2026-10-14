@@ -34,6 +34,13 @@ func (s *S3) Put(ctx context.Context, key string, body io.Reader, size int64) er
 	}
 	return nil
 }
+func (s *S3) PutContent(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	_, err := s.client.PutObject(ctx, s.bucket, key, body, size, minio.PutObjectOptions{ContentType: contentType, DisableMultipart: true})
+	if err != nil {
+		return fmt.Errorf("S3 put failed")
+	}
+	return nil
+}
 func (s *S3) Get(ctx context.Context, key string) (Object, error) {
 	obj, err := s.client.GetObject(ctx, s.bucket, key, minio.GetObjectOptions{})
 	if err != nil {

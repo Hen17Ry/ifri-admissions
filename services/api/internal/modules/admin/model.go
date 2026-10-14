@@ -146,6 +146,7 @@ type Account struct {
 
 // SessionView is what the interface learns about its own session.
 type SessionView struct {
+	ID          string       `json:"id"`
 	Stage       string       `json:"stage"`
 	CSRFToken   string       `json:"csrfToken"`
 	Email       string       `json:"email"`

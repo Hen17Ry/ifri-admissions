@@ -23,6 +23,24 @@ export const router = createRouter({
       meta: { admin: 'dashboard.view' },
     },
     {
+      path: '/admin/candidatures',
+      name: 'admin-applications',
+      component: () => import('@/pages/admin/AdminApplicationsPage.vue'),
+      meta: { admin: 'applications.read' },
+    },
+    {
+      path: '/admin/candidatures/:id',
+      name: 'admin-application',
+      component: () => import('@/pages/admin/AdminApplicationPage.vue'),
+      meta: { admin: 'applications.read' },
+    },
+    {
+      path: '/admin/corrections',
+      name: 'admin-corrections',
+      component: () => import('@/pages/admin/AdminCorrectionsPage.vue'),
+      meta: { admin: 'corrections.decide' },
+    },
+    {
       path: '/admin/connexion',
       name: 'admin-login',
       component: () => import('@/pages/admin/AdminLoginPage.vue'),

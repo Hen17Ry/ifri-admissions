@@ -441,11 +441,11 @@ func TestPostgresAdmin(t *testing.T) {
 	})
 
 	reviewer, reviewerID := e.account(super, "reviewer.gl@ifri.example", GrantInput{Role: RoleReviewer, Program: "GL"})
-	manager, _ := e.account(super, "manager@ifri.example", GrantInput{Role: RoleSelectionManager})
-	auditor, _ := e.account(super, "auditor@ifri.example", GrantInput{Role: RoleAuditor})
+	manager, _ := e.account(super, "manager@ifri.example", GrantInput{Role: RoleDeputyDirector})
+	auditor, _ := e.account(super, "auditor@ifri.example", GrantInput{Role: RoleDirector})
 
 	t.Run("activation link: hashed, fragment, single use, expiry, password policy", func(t *testing.T) {
-		token, id := e.activationToken(super, "pending@ifri.example", "En attente", []GrantInput{{Role: RoleAuditor}})
+		token, id := e.activationToken(super, "pending@ifri.example", "En attente", []GrantInput{{Role: RoleDirector}})
 		if e.count(`SELECT count(*) FROM admin_activation_tokens WHERE token_hash=sha256(convert_to($1,'UTF8'))`, token) != 1 {
 			t.Fatal("token not stored as SHA-256")
 		}
@@ -465,7 +465,7 @@ func TestPostgresAdmin(t *testing.T) {
 		if r := anon.do("POST", "/activation", map[string]string{"token": token, "password": strong}); r.status != 410 {
 			t.Fatal("token reused")
 		}
-		expiring, _ := e.activationToken(super, "late@ifri.example", "En retard", []GrantInput{{Role: RoleAuditor}})
+		expiring, _ := e.activationToken(super, "late@ifri.example", "En retard", []GrantInput{{Role: RoleDirector}})
 		e.clock.Advance(73 * time.Hour)
 		if r := anon.do("POST", "/activation/inspect", map[string]string{"token": expiring}); r.status != 410 {
 			t.Fatal("expired token accepted")
@@ -488,9 +488,9 @@ func TestPostgresAdmin(t *testing.T) {
 
 	t.Run("permission matrix over every registered route", func(t *testing.T) {
 		missing := "00000000-0000-4000-8000-000000000000"
-		roles := map[string]*browser{"SUPER_ADMIN": super, "REVIEWER": reviewer, "SELECTION_MANAGER": manager, "AUDITOR": auditor}
+		roles := map[string]*browser{"SUPER_ADMIN": super, "REVIEWER": reviewer, "DEPUTY_DIRECTOR": manager, "DIRECTOR": auditor}
 		principals := map[string]Principal{"SUPER_ADMIN": {Grants: []Grant{{Role: RoleSuperAdmin}}}, "REVIEWER": {Grants: []Grant{{Role: RoleReviewer, ProgramID: "x"}}},
-			"SELECTION_MANAGER": {Grants: []Grant{{Role: RoleSelectionManager}}}, "AUDITOR": {Grants: []Grant{{Role: RoleAuditor}}}}
+			"DEPUTY_DIRECTOR": {Grants: []Grant{{Role: RoleDeputyDirector}}}, "DIRECTOR": {Grants: []Grant{{Role: RoleDirector}}}}
 		for _, route := range e.router.Routes() {
 			path := strings.TrimPrefix(strings.ReplaceAll(route.Path, "{id}", missing), BasePath)
 			switch route.Permission {
@@ -526,13 +526,13 @@ func TestPostgresAdmin(t *testing.T) {
 		}
 		var gl, im string
 		e.pool.QueryRow(ctx, `SELECT (SELECT id::text FROM programs WHERE code='GL'),(SELECT id::text FROM programs WHERE code='IM')`).Scan(&gl, &im)
-		if !session.Principal.CanFor(PermApplicationsReview, gl) || session.Principal.CanFor(PermApplicationsReview, im) {
+		if !session.Principal.CanFor(PermReviewDecide, gl) || session.Principal.CanFor(PermReviewDecide, im) {
 			t.Fatal("scope not enforced")
 		}
 		if all, ids := session.Principal.Scope(PermApplicationsRead); all || !slices.Equal(ids, []string{gl}) {
 			t.Fatal("scope list", all, ids)
 		}
-		for _, grants := range [][]GrantInput{{{Role: RoleSuperAdmin, Program: "GL"}}, {{Role: RoleReviewer, Program: "NOPE"}}, {{Role: "ROOT"}}, {}} {
+		for _, grants := range [][]GrantInput{{{Role: RoleSuperAdmin, Program: "GL"}}, {{Role: RoleDirector, Program: "GL"}}, {{Role: RoleReviewer, Program: "NOPE"}}, {{Role: "ROOT"}}, {{Role: "AUDITOR"}}, {}} {
 			if r := super.do("POST", "/accounts", AccountInput{Email: "scope@ifri.example", DisplayName: "Scope", Grants: grants}); r.status != 422 {
 				t.Fatal("invalid grants accepted", grants, r.raw)
 			}
@@ -623,11 +623,11 @@ func TestPostgresAdmin(t *testing.T) {
 		if r := super.do("POST", "/accounts/"+superID+"/disable", map[string]any{}); r.status != 409 || r.code() != "ADMIN_SELF_ACTION_FORBIDDEN" {
 			t.Fatal(r.raw)
 		}
-		if r := super.do("PUT", "/accounts/"+superID+"/grants", map[string]any{"grants": []GrantInput{{Role: RoleAuditor}}}); r.status != 409 || r.code() != "ADMIN_LAST_SUPER_ADMIN" {
+		if r := super.do("PUT", "/accounts/"+superID+"/grants", map[string]any{"grants": []GrantInput{{Role: RoleDirector}}}); r.status != 409 || r.code() != "ADMIN_LAST_SUPER_ADMIN" {
 			t.Fatal(r.raw)
 		}
 		second, secondID := e.account(super, "second.super@ifri.example", GrantInput{Role: RoleSuperAdmin})
-		if r := second.do("PUT", "/accounts/"+secondID+"/grants", map[string]any{"grants": []GrantInput{{Role: RoleAuditor}}}); r.status != 200 {
+		if r := second.do("PUT", "/accounts/"+secondID+"/grants", map[string]any{"grants": []GrantInput{{Role: RoleDirector}}}); r.status != 200 {
 			t.Fatal("demotion with another super-administrator", r.raw)
 		}
 		if second.do("GET", "/session", nil).status != 401 {
@@ -803,8 +803,9 @@ func TestPostgresAdmin(t *testing.T) {
 		if _, err := e.pool.Exec(ctx, `UPDATE admin_role_assignments SET role='SUPER_ADMIN'`); err == nil {
 			t.Fatal("role assignment edited in place")
 		}
-		if _, err := e.provider.Down(ctx); err == nil || !strings.Contains(err.Error(), "rollback refused") {
-			t.Fatal("migration 00007 rollback accepted with accounts", err)
+		// 00008 refuses first (business roles assigned), 00007 would refuse next (accounts).
+		if _, err := e.provider.DownTo(ctx, 6); err == nil || !strings.Contains(err.Error(), "rollback refused") {
+			t.Fatal("admin migrations rolled back with accounts", err)
 		}
 	})
 }
@@ -822,7 +823,7 @@ func TestPostgresAdminMigrationRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
 	defer cancel()
 	e := setup(t, ctx)
-	if _, err := e.provider.Down(ctx); err != nil {
+	if _, err := e.provider.DownTo(ctx, 6); err != nil {
 		t.Fatal(err)
 	}
 	if e.count(`SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name LIKE 'admin\_%'`) != 0 {

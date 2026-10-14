@@ -123,6 +123,15 @@ def main() -> int:
         pulse = Thread(target=heartbeat, daemon=True)
         pulse.start()
         consumer = socket.gethostname()
+        # OCR proofs: own Redis connection and loop, never queued behind analyses.
+        from ifri_ocr.proofs import ProofClient, serve_proofs
+
+        proofs = Thread(
+            target=serve_proofs,
+            args=(connect(config), ProofClient(base, secret), consumer, stop),
+            daemon=True,
+        )
+        proofs.start()
         logger.info("Worker ready; hybrid extraction enabled", extra={"engine": reader.name})
         while not stop.is_set():
             reclaimed = client.xautoclaim(

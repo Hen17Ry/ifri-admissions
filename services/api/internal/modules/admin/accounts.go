@@ -89,7 +89,27 @@ func resolveGrants(ctx context.Context, tx pgx.Tx, input []GrantInput) ([]resolv
 			out = append(out, r)
 		}
 	}
+	// One role per account (several rows only for the scopes of that one role).
+	for _, r := range out {
+		if r.Role != out[0].Role {
+			fields["grants"] = "Un compte n’a qu’un seul rôle : créez un second compte pour un autre rôle."
+		}
+	}
 	return out, fields
+}
+
+// Coverage reports missing roles nobody can stand in for (no acting arrangement exists).
+type Coverage struct {
+	DeputyDirector bool `json:"deputyDirector"`
+	Director       bool `json:"director"`
+}
+
+func (s *Service) Coverage(ctx context.Context) (Coverage, error) {
+	var c Coverage
+	err := s.Pool.QueryRow(ctx, `SELECT
+	 EXISTS(SELECT 1 FROM admin_users u JOIN admin_role_assignments r ON r.admin_user_id=u.id AND r.revoked_at IS NULL WHERE u.status='ACTIVE' AND r.role='DEPUTY_DIRECTOR'),
+	 EXISTS(SELECT 1 FROM admin_users u JOIN admin_role_assignments r ON r.admin_user_id=u.id AND r.revoked_at IS NULL WHERE u.status='ACTIVE' AND r.role='DIRECTOR')`).Scan(&c.DeputyDirector, &c.Director)
+	return c, err
 }
 
 func (s *Service) activeSuperAdminsExcept(ctx context.Context, tx pgx.Tx, user string) (int, bool, error) {
@@ -509,6 +529,8 @@ var EventTypes = []string{
 	"ADMIN_LOGIN_PASSWORD_ACCEPTED", "ADMIN_LOGIN_SUCCEEDED", "ADMIN_LOGOUT", "ADMIN_MFA_ENROLLED", "ADMIN_MFA_FAILED",
 	"ADMIN_MFA_RESET", "ADMIN_PASSWORD_CHANGE_FAILED", "ADMIN_PASSWORD_CHANGED", "ADMIN_PASSWORD_RESET", "ADMIN_RECOVERY_CODE_USED",
 	"ADMIN_RECOVERY_CODES_REGENERATED", "ADMIN_ROLES_CHANGED", "ADMIN_SUPER_ADMIN_BOOTSTRAPPED", "APPLICATION_SUBMITTED",
+	"CORRECTION_APPROVED", "CORRECTION_PROPOSED", "CORRECTION_REFUSED", "REVIEW_CLAIMED", "REVIEW_REASSIGNED", "REVIEW_REJECTED",
+	"REVIEW_REVERTED", "REVIEW_VALIDATED", "SYNTHETIC_DATA_GENERATED",
 }
 
 func encodeCursor(t time.Time, id string) string {

@@ -141,9 +141,9 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 
 ### Suites notées pendant la phase 6
 
-- [ ] **Phase 8** : la fiche admin doit afficher le lien de doublon **dans les deux sens** ; la première candidature d'une paire ne porte aucun drapeau (requête sur `related_application_id`).
-- [ ] **Phase 8** : statuts de revue et de sélection dans une table séparée et historisée ; une réouverture éventuelle sera un événement audité, jamais une modification de la ligne `applications` (ADR 088).
-- [ ] **Phase 9** : classement sur la colonne `average` puis, à égalité, sur les fractions exactes par produit en croix (ADR 086) ; règle d'arrondi et de départage IFRI à obtenir.
+- [x] **Phase 8** : la fiche admin doit afficher le lien de doublon **dans les deux sens** ; la première candidature d'une paire ne porte aucun drapeau (requête sur `related_application_id`).
+- [x] **Phase 8** : statuts de revue dans une table séparée et historisée ; une réouverture éventuelle sera un événement audité, jamais une modification de la ligne `applications` (ADR 088). Statuts de sélection : phase 9.
+- [ ] **Phase 9** : classement sur la moyenne **effective** de la revue (ADR 114) puis, à égalité, sur les fractions exactes par produit en croix (ADR 086) ; règle d'arrondi et de départage IFRI à obtenir.
 - [ ] **Phase 10 ou plus tard** : consultation du récépissé par numéro + code envoyé par email, pour un candidat qui a perdu son cookie ou changé de navigateur.
 - [ ] **Repli manuel** (ADR 092) : politique et seuil d'échecs d'analyse à définir avec l'IFRI avant implémentation.
 - [ ] **Avant production** : `numbering_year` de chaque campagne réelle à confirmer ; politique de doublons à trancher par l'IFRI.
@@ -156,12 +156,30 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 - [x] Module `admin` : connexion, MFA, activation, mot de passe, comptes, rôles et périmètres, journal ; registre de routes à permission obligatoire ; en-têtes stricts ; CLI `create-super-admin`, `reset-mfa`, `reactivate`, `reset-password`.
 - [x] Interface `/admin` : connexion, activation, enrôlement et saisie TOTP, codes de secours, mon compte, comptes, journal, tableau de bord vide ; UI UX Pro Max (`pages/admin.md`).
 - [x] Tests Go unitaires et intégration (PostgreSQL + Redis réels), Vitest, Playwright sur stack isolée ; `make check` vert.
-- [ ] Commit des changements de la phase 7 (par l'utilisateur).
+- [x] Commit des changements de la phase 7 (par l'utilisateur, df6c8fb).
 - [ ] **Base de dev** : recréer son volume pour repartir sans les 4 soumissions synthétiques et avec `numbering_year` = année courante (commande dans PHASE7_VALIDATION), à faire par l'utilisateur.
 
 ### Suites notées pendant la phase 7
 
-- [ ] **Phase 8** : appeler `audit.RecordAccess` à chaque ouverture de dossier ; filtrer les listes avec `Principal.Scope` ; afficher les drapeaux de doublon dans les deux sens.
+- [x] **Phase 8** : appeler `audit.RecordAccess` à chaque ouverture de dossier ; filtrer les listes avec `Principal.Scope` ; afficher les drapeaux de doublon dans les deux sens.
 - [ ] **Phase 10** : en-têtes et CSP de production dans Nginx (politique dans ADMIN_SECURITY), HSTS, proxys de confiance pour l'IP cliente de la limitation de débit, secrets (`ADMIN_SECRETS_KEY`) dans le gestionnaire de secrets.
 - [ ] **Rotation de `ADMIN_SECRETS_KEY`** : trousseau multi-versions et rechiffrement à la connexion (préparé par `key_version`, non implémenté).
 - [ ] **IFRI** : durée de conservation de l'audit et des IP pseudonymisées ; réinitialisation de mot de passe par email ; second facteur matériel (WebAuthn) éventuel.
+
+## Phase 8 — back-office des dossiers soumis (14 octobre 2026)
+
+- [x] Migration 00008 : rôles IFRI, un rôle par compte (trigger), anciens rôles révoqués ; motifs de rejet ; revues, événements, corrections, gel, preuves ; `ifri_fold` et `name_key` ; index ; garde-fous (version + événement, acteur, quatre yeux, moyenne effective revérifiée, gel, append-only) ; backfill ; down refusé dès qu'une revue a vécu.
+- [x] Permissions et rôles Go ; `resolveGrants` refuse un second rôle ; couverture DA / Directeur ; `id` dans la session admin.
+- [x] Module `review` : liste, dossier, tableau de bord, référentiels, flux PDF, actions de revue, corrections, preuves (file séparée, routes internes, redistribution), générateur synthétique (`api dev synthetic-applications`).
+- [x] Worker : boucle de preuves séparée (`ifri_ocr.proofs`), rendu depuis la version exacte et les coordonnées stockées.
+- [x] Interface : tableau de bord, liste, dossier, file des corrections, sélecteur de rôle unique ; UI UX Pro Max (`pages/admin-review.md`).
+- [x] Tests : Go unitaires et intégration (PostgreSQL + Redis réels), pytest, Vitest, Playwright (deux agents et un DA, aperçu PDF, preuve OCR, temps de la liste sur 5 001 dossiers) ; `make check` vert.
+- [ ] Commit des changements de la phase 8 (par l'utilisateur).
+- [ ] **Base de dev** : la migration 00008 s'applique à la base de dev au prochain `make check` ; recréer son volume reste à faire par l'utilisateur pour repartir propre (PHASE7_VALIDATION).
+
+### Suites notées pendant la phase 8
+
+- [ ] **Phase 9** : écrire dans `ranking_freezes` au gel d'une filière (les triggers de revue et de correction s'y fient déjà) ; ne classer que les dossiers `VALIDATED` et admissibles ; validation par `selection.validate` (Directeur).
+- [ ] **IFRI** : valider la liste provisoire des motifs de rejet (ROADMAP, question 6).
+- [ ] **Phase 10** : la CSP de production de la SPA doit garder `frame-src 'self'` (ou `default-src 'self'`) pour l'aperçu PDF ; vérifier l'aperçu intégré dans les navigateurs cibles (Chromium headless ne l'affiche pas) ; nettoyage des images de preuve orphelines si une politique de conservation l'exige.
+- [ ] **Après la phase 8** : `pg_trgm` à réévaluer si la recherche par sous-chaîne dépasse les temps mesurés sur les volumes réels.

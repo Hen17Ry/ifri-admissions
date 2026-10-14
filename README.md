@@ -310,3 +310,15 @@ docker compose exec api api admin reset-password --email admin@ifri.example  # m
 Puis connexion sur http://localhost:5173/admin et enrôlement TOTP. `ADMIN_SECRETS_KEY` (base64, 32 octets ou plus : `openssl rand -base64 48`) est obligatoire ; sa perte rend illisibles les secrets TOTP. Sécurité, clés et procédures : docs/ADMIN_SECURITY.md.
 
 Playwright tourne sur une stack Docker isolée et jetable (`make e2e`) : aucune candidature soumise n’est laissée dans la base de développement. Mémoire mesurée : environ 0,8 Gio pour la stack e2e en plus des 0,35 à 0,5 Gio de la stack de développement et d’environ 1,3 Gio pour Vite, Playwright et Chromium. Sur une machine plus juste, arrêter la stack de développement (`docker compose stop`) avant `make e2e`.
+
+## Phase 8 — back-office des candidatures
+
+Rôles IFRI (un seul par compte) : agent et responsable du secrétariat exécutif, directeur adjoint, directeur, administrateur technique. Écrans : `/admin/candidatures`, `/admin/candidatures/<id>`, `/admin/corrections`. Contrat : docs/ADMIN_REVIEW.md.
+
+Données synthétiques pour essayer la liste en développement (aucune donnée personnelle ; refusé en production ; les soumissions restent jusqu’à la recréation du volume de dev) :
+
+```sh
+docker compose exec api api dev synthetic-applications --count 5000 --confirm
+```
+
+`make e2e` génère d’abord 5 000 dossiers synthétiques sur la stack jetable (`E2E_SYNTHETIC_COUNT` pour un autre nombre).

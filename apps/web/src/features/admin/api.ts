@@ -1,13 +1,14 @@
 import { api, ApiError } from '@/lib/api'
 
 export type Stage = 'MFA_ENROLLMENT' | 'MFA_VERIFICATION' | 'ACTIVE'
-export type Role = 'SUPER_ADMIN' | 'REVIEWER' | 'SELECTION_MANAGER' | 'AUDITOR'
+export type Role = 'SUPER_ADMIN' | 'REVIEWER' | 'REVIEW_LEAD' | 'DEPUTY_DIRECTOR' | 'DIRECTOR'
 export interface Grant {
   role: Role
   program?: string
   programName?: string
 }
 export interface AdminSession {
+  id: string
   stage: Stage
   csrfToken: string
   email: string
@@ -82,7 +83,7 @@ let csrfToken = ''
 export function setCsrfToken(token: string) {
   csrfToken = token
 }
-function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
+export function adminRequest<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   const mutation = method !== 'GET'
   return api<T>(`/admin${path}`, {
     method,
@@ -91,62 +92,71 @@ function request<T>(path: string, method = 'GET', body?: unknown): Promise<T> {
   })
 }
 export const adminApi = {
-  session: () => request<AdminSession>('/session'),
+  session: () => adminRequest<AdminSession>('/session'),
   login: (email: string, password: string) =>
-    request<StageResponse>('/auth/login', 'POST', { email, password }),
-  logout: () => request<{ loggedOut: boolean }>('/auth/logout', 'POST'),
-  startEnrollment: () => request<Enrollment>('/auth/mfa/enrollment', 'POST'),
+    adminRequest<StageResponse>('/auth/login', 'POST', { email, password }),
+  logout: () => adminRequest<{ loggedOut: boolean }>('/auth/logout', 'POST'),
+  startEnrollment: () => adminRequest<Enrollment>('/auth/mfa/enrollment', 'POST'),
   confirmEnrollment: (code: string) =>
-    request<StageResponse>('/auth/mfa/enrollment/confirm', 'POST', { code }),
-  verify: (code: string) => request<StageResponse>('/auth/mfa/verify', 'POST', { code }),
+    adminRequest<StageResponse>('/auth/mfa/enrollment/confirm', 'POST', { code }),
+  verify: (code: string) => adminRequest<StageResponse>('/auth/mfa/verify', 'POST', { code }),
   changePassword: (currentPassword: string, newPassword: string) =>
-    request<{ reauthenticate: boolean }>('/auth/password', 'POST', {
+    adminRequest<{ reauthenticate: boolean }>('/auth/password', 'POST', {
       currentPassword,
       newPassword,
     }),
   regenerateRecoveryCodes: () =>
-    request<{ recoveryCodes: string[] }>('/auth/recovery-codes', 'POST'),
+    adminRequest<{ recoveryCodes: string[] }>('/auth/recovery-codes', 'POST'),
   inspectActivation: (token: string) =>
-    request<{ email: string; displayName: string }>('/activation/inspect', 'POST', { token }),
+    adminRequest<{ email: string; displayName: string }>('/activation/inspect', 'POST', { token }),
   activate: (token: string, password: string) =>
-    request<{ activated: boolean }>('/activation', 'POST', { token, password }),
-  accounts: () => request<{ accounts: Account[] }>('/accounts'),
+    adminRequest<{ activated: boolean }>('/activation', 'POST', { token, password }),
+  accounts: () => adminRequest<{ accounts: Account[] }>('/accounts'),
   createAccount: (input: { email: string; displayName: string; grants: GrantInput[] }) =>
-    request<Activation>('/accounts', 'POST', input),
+    adminRequest<Activation>('/accounts', 'POST', input),
   reissueActivation: (id: string) =>
-    request<Activation>(`/accounts/${encodeURIComponent(id)}/activation-link`, 'POST'),
+    adminRequest<Activation>(`/accounts/${encodeURIComponent(id)}/activation-link`, 'POST'),
   setStatus: (id: string, enabled: boolean) =>
-    request<Account>(
+    adminRequest<Account>(
       `/accounts/${encodeURIComponent(id)}/${enabled ? 'enable' : 'disable'}`,
       'POST',
     ),
   setGrants: (id: string, grants: GrantInput[]) =>
-    request<Account>(`/accounts/${encodeURIComponent(id)}/grants`, 'PUT', { grants }),
+    adminRequest<Account>(`/accounts/${encodeURIComponent(id)}/grants`, 'PUT', { grants }),
   resetMfa: (id: string) =>
-    request<Account>(`/accounts/${encodeURIComponent(id)}/mfa/reset`, 'POST'),
-  programs: () => request<{ programs: Program[] }>('/programs'),
+    adminRequest<Account>(`/accounts/${encodeURIComponent(id)}/mfa/reset`, 'POST'),
+  programs: () => adminRequest<{ programs: Program[] }>('/programs'),
   audit: (filter: AuditFilter) => {
     const query = new URLSearchParams()
     for (const [key, value] of Object.entries(filter)) if (value) query.set(key, value)
     const text = query.toString()
-    return request<AuditPage>(`/audit-events${text ? `?${text}` : ''}`)
+    return adminRequest<AuditPage>(`/audit-events${text ? `?${text}` : ''}`)
   },
 }
 
+// One role per account (ADR 110): the order follows the organisation chart of docs/ADMIN_REVIEW.md.
 export const roleLabels: Record<Role, string> = {
-  SUPER_ADMIN: 'Super-administrateur',
-  REVIEWER: 'Vérificateur des dossiers',
-  SELECTION_MANAGER: 'Responsable de la sélection',
-  AUDITOR: 'Auditeur',
+  REVIEWER: 'Agent du secrétariat exécutif',
+  REVIEW_LEAD: 'Responsable du secrétariat exécutif',
+  DEPUTY_DIRECTOR: 'Directeur adjoint',
+  DIRECTOR: 'Directeur',
+  SUPER_ADMIN: 'Administrateur technique',
 }
 export const roleDescriptions: Record<Role, string> = {
-  SUPER_ADMIN: 'Gère les comptes et consulte le journal d’audit.',
-  REVIEWER: 'Vérifiera les dossiers de candidature.',
-  SELECTION_MANAGER: 'Préparera le classement et la sélection.',
-  AUDITOR: 'Consulte tout en lecture seule, journal d’audit compris.',
+  REVIEWER:
+    'Prend des dossiers en charge, les valide ou les rejette et propose des corrections de notes ou de coefficients.',
+  REVIEW_LEAD:
+    'Mêmes droits qu’un agent ; peut aussi réattribuer un dossier ou le remettre en vérification.',
+  DEPUTY_DIRECTOR:
+    'Consulte les dossiers ; seul à approuver ou refuser une correction. Ne propose jamais de correction.',
+  DIRECTOR:
+    'Consulte tous les dossiers et le journal d’audit, sans rien modifier ; validera la sélection finale.',
+  SUPER_ADMIN:
+    'Gère les comptes et consulte le journal d’audit. N’a pas accès aux dossiers des candidats.',
 }
-// Roles that apply to every program cannot be limited to some of them.
-export const globalRoles: Role[] = ['SUPER_ADMIN', 'AUDITOR']
+export function roleLabel(role: string): string {
+  return roleLabels[role as Role] ?? role
+}
 export const statusLabels: Record<Account['status'], string> = {
   ACTIVE: 'Actif',
   PENDING_ACTIVATION: 'Activation en attente',
@@ -173,9 +183,18 @@ export const eventLabels: Record<string, string> = {
   ADMIN_PASSWORD_RESET: 'Mot de passe réinitialisé (serveur)',
   ADMIN_RECOVERY_CODE_USED: 'Code de secours utilisé',
   ADMIN_RECOVERY_CODES_REGENERATED: 'Codes de secours régénérés',
-  ADMIN_ROLES_CHANGED: 'Rôles ou périmètre modifiés',
+  ADMIN_ROLES_CHANGED: 'Rôle modifié',
   ADMIN_SUPER_ADMIN_BOOTSTRAPPED: 'Premier super-administrateur créé (serveur)',
   APPLICATION_SUBMITTED: 'Candidature soumise',
+  CORRECTION_APPROVED: 'Correction approuvée',
+  CORRECTION_PROPOSED: 'Correction proposée',
+  CORRECTION_REFUSED: 'Correction refusée',
+  REVIEW_CLAIMED: 'Dossier pris en charge',
+  REVIEW_REASSIGNED: 'Dossier réattribué',
+  REVIEW_REJECTED: 'Dossier rejeté',
+  REVIEW_REVERTED: 'Dossier remis en vérification',
+  REVIEW_VALIDATED: 'Dossier validé',
+  SYNTHETIC_DATA_GENERATED: 'Données synthétiques générées (serveur)',
 }
 export const actorLabels: Record<AuditEntry['actorType'], string> = {
   ADMIN: 'Administrateur',

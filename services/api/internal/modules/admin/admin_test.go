@@ -162,10 +162,8 @@ func TestUnknownAdminPathAndHeaders(t *testing.T) {
 
 func TestRolePermissionsAndScope(t *testing.T) {
 	gl, im := "11111111-1111-1111-1111-111111111111", "22222222-2222-2222-2222-222222222222"
-	superAdmin := Principal{Grants: []Grant{{Role: RoleSuperAdmin}}}
-	auditor := Principal{Grants: []Grant{{Role: RoleAuditor}}}
-	reviewerGL := Principal{Grants: []Grant{{Role: RoleReviewer, ProgramID: gl}}}
-	manager := Principal{Grants: []Grant{{Role: RoleSelectionManager}}}
+	role := func(r Role) Principal { return Principal{Grants: []Grant{{Role: r}}} }
+	superAdmin, agent, lead, deputy, director := role(RoleSuperAdmin), role(RoleReviewer), role(RoleReviewLead), role(RoleDeputyDirector), role(RoleDirector)
 	for _, tc := range []struct {
 		name string
 		p    Principal
@@ -174,47 +172,56 @@ func TestRolePermissionsAndScope(t *testing.T) {
 	}{
 		{"super admin manages accounts", superAdmin, PermAccountsManage, true},
 		{"super admin reads audit", superAdmin, PermAuditRead, true},
-		{"super admin does not review", superAdmin, PermApplicationsReview, false},
-		{"auditor reads audit", auditor, PermAuditRead, true},
-		{"auditor reads accounts", auditor, PermAccountsRead, true},
-		{"auditor never writes", auditor, PermAccountsManage, false},
-		{"auditor never reviews", auditor, PermApplicationsReview, false},
-		{"reviewer reviews", reviewerGL, PermApplicationsReview, true},
-		{"reviewer has no audit", reviewerGL, PermAuditRead, false},
-		{"reviewer does not rank", reviewerGL, PermRankingManage, false},
-		{"manager validates selection", manager, PermSelectionValidate, true},
-		{"manager has no accounts", manager, PermAccountsRead, false},
+		{"super admin sees no dossier", superAdmin, PermApplicationsRead, false},
+		{"agent reads dossiers", agent, PermApplicationsRead, true},
+		{"agent claims and decides", agent, PermReviewDecide, true},
+		{"agent proposes corrections", agent, PermCorrectionsPropose, true},
+		{"agent never approves", agent, PermCorrectionsDecide, false},
+		{"agent never reverts", agent, PermReviewRevert, false},
+		{"agent never reassigns", agent, PermReviewReassign, false},
+		{"lead reverts", lead, PermReviewRevert, true},
+		{"lead reassigns", lead, PermReviewReassign, true},
+		{"lead never approves", lead, PermCorrectionsDecide, false},
+		{"deputy approves", deputy, PermCorrectionsDecide, true},
+		{"deputy never proposes", deputy, PermCorrectionsPropose, false},
+		{"deputy never decides a dossier", deputy, PermReviewDecide, false},
+		{"director reads dossiers", director, PermApplicationsRead, true},
+		{"director reads the audit", director, PermAuditRead, true},
+		{"director validates the selection", director, PermSelectionValidate, true},
+		{"director changes nothing", director, PermReviewDecide, false},
+		{"director proposes nothing", director, PermCorrectionsPropose, false},
+		{"director manages no account", director, PermAccountsManage, false},
 	} {
 		if tc.p.Can(tc.perm) != tc.want {
 			t.Fatal(tc.name)
 		}
 	}
-	if !reviewerGL.CanFor(PermApplicationsReview, gl) || reviewerGL.CanFor(PermApplicationsReview, im) {
+	scoped := Principal{Grants: []Grant{{Role: RoleReviewer, ProgramID: gl}}}
+	if !scoped.CanFor(PermReviewDecide, gl) || scoped.CanFor(PermReviewDecide, im) {
 		t.Fatal("program scope ignored")
 	}
-	if all, ids := reviewerGL.Scope(PermApplicationsRead); all || !slices.Equal(ids, []string{gl}) {
+	if all, ids := scoped.Scope(PermApplicationsRead); all || !slices.Equal(ids, []string{gl}) {
 		t.Fatal("scope", all, ids)
 	}
-	if all, _ := manager.Scope(PermApplicationsRead); !all {
+	if all, _ := agent.Scope(PermApplicationsRead); !all {
 		t.Fatal("unscoped grant must cover every program")
 	}
-	if !auditor.CanFor(PermApplicationsRead, im) {
-		t.Fatal("global auditor limited")
-	}
-	for role := range GlobalRoles {
-		if !KnownRole(role) {
+	for r := range GlobalRoles {
+		if !KnownRole(r) {
 			t.Fatal("unknown global role")
 		}
 	}
-	// Phase 8 and 9 permissions are declared now and granted to a role.
-	for _, perm := range []Permission{PermApplicationsRead, PermApplicationsReview, PermRankingRead, PermRankingManage, PermSelectionValidate} {
+	for perm := range ProgramScoped {
 		granted := false
 		for _, perms := range RolePermissions {
 			granted = granted || slices.Contains(perms, perm)
 		}
-		if !granted || !ProgramScoped[perm] {
-			t.Fatal("future permission not declared", perm)
+		if !granted {
+			t.Fatal("permission granted to no role", perm)
 		}
+	}
+	if len(RolePermissions) != 5 {
+		t.Fatal("IFRI organisation has five roles")
 	}
 }
 

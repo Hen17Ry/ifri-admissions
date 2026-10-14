@@ -1,101 +1,21 @@
-import { test, expect, type Page } from '@playwright/test'
-import { execFileSync } from 'node:child_process'
-import { createHmac } from 'node:crypto'
-
-// Runs only on the disposable stack of `make e2e` (the CLI acts on its API container).
-const project = process.env.E2E_PROJECT
-const root = process.env.E2E_ROOT ?? '../..'
-
-function cli(args: string[], input = ''): string {
-  return execFileSync(
-    'docker',
-    [
-      'compose',
-      '--project-directory',
-      root,
-      '-p',
-      project!,
-      'exec',
-      '-T',
-      'api',
-      'api',
-      'admin',
-      ...args,
-    ],
-    { input, encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] },
-  )
-}
-
-// RFC 6238 (HMAC-SHA1, 30 s, 6 digits), computed like an authenticator application.
-function base32(secret: string): Buffer {
-  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567'
-  let bits = ''
-  for (const char of secret.replace(/\s/g, ''))
-    bits += alphabet.indexOf(char).toString(2).padStart(5, '0')
-  const bytes = bits.match(/.{8}/g) ?? []
-  return Buffer.from(bytes.map((byte) => parseInt(byte, 2)))
-}
-const used = new Map<string, number>()
-async function totp(secret: string): Promise<string> {
-  // A code is accepted once: wait for the next 30 s step if this secret already used the current one.
-  let step = Math.floor(Date.now() / 30000)
-  while ((used.get(secret) ?? -1) >= step) {
-    await new Promise((resolve) => setTimeout(resolve, 1000))
-    step = Math.floor(Date.now() / 30000)
-  }
-  used.set(secret, step)
-  const counter = Buffer.alloc(8)
-  counter.writeBigUInt64BE(BigInt(step))
-  const digest = createHmac('sha1', base32(secret)).update(counter).digest()
-  const offset = digest[digest.length - 1]! & 0x0f
-  const value = (digest.readUInt32BE(offset) & 0x7fffffff) % 1_000_000
-  return value.toString().padStart(6, '0')
-}
-
-async function checkpoint(page: Page, name: string) {
-  for (const width of [375, 768, 1024, 1440]) {
-    await page.setViewportSize({ width, height: 900 })
-    expect(
-      await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth),
-    ).toBe(false)
-    await page.screenshot({ path: `browser-artifacts/admin-${name}-${width}.png`, fullPage: true })
-  }
-  await page.setViewportSize({ width: 1280, height: 900 })
-}
-
-async function enrol(page: Page): Promise<string[]> {
-  await expect(
-    page.getByRole('heading', { name: 'Configurez la double authentification' }),
-  ).toBeVisible()
-  await expect(page.getByRole('img', { name: /Code QR/ })).toBeVisible()
-  const secret = (await page.locator('.mfa-secret').textContent())!.replace(/\s/g, '')
-  await page.getByLabel('Code à 6 chiffres').fill(await totp(secret))
-  await page.getByRole('button', { name: 'Valider' }).click()
-  await expect(page.getByRole('heading', { name: 'Vos codes de secours' })).toBeVisible()
-  const codes = await page.locator('.recovery-list li').allTextContents()
-  expect(codes).toHaveLength(10)
-  await page.getByLabel('J’ai conservé ces codes en lieu sûr.').check()
-  await page.getByRole('button', { name: 'Accéder à l’administration' }).click()
-  await expect(page.getByRole('heading', { name: 'Tableau de bord' })).toBeVisible()
-  return codes
-}
+import { test, expect } from '@playwright/test'
+import { checkpoint, cli, enrol, project, superAdmin } from './support'
 
 test('administration: CLI super-admin, TOTP, account creation, activation, deactivation', async ({
   page,
   browser,
 }) => {
   test.skip(!project, 'Run through `make e2e`: the scenario drives the CLI of the isolated stack.')
-  const superEmail = 'super.e2e@ifri.example'
-  const superPassword = 'phrase de passe du super administrateur'
+  const { email: superEmail, password: superPassword } = superAdmin
   expect(
     cli(
-      ['create-super-admin', '--email', superEmail, '--name', 'Super Admin E2E'],
+      ['admin', 'create-super-admin', '--email', superEmail, '--name', 'Super Admin E2E'],
       `${superPassword}\n`,
     ),
   ).toContain('Super-administrator created')
   expect(() =>
     cli(
-      ['create-super-admin', '--email', 'other@ifri.example', '--name', 'Other'],
+      ['admin', 'create-super-admin', '--email', 'other@ifri.example', '--name', 'Other'],
       `${superPassword}\n`,
     ),
   ).toThrow()
@@ -118,7 +38,7 @@ test('administration: CLI super-admin, TOTP, account creation, activation, deact
   await enrol(page)
   await checkpoint(page, 'dashboard')
 
-  // Create a reviewer limited to Génie Logiciel; the activation link is shown once.
+  // Create an agent of the executive secretariat (one role per account); the link is shown once.
   await page
     .getByRole('navigation', { name: 'Administration' })
     .getByRole('link', { name: 'Comptes' })
@@ -128,9 +48,9 @@ test('administration: CLI super-admin, TOTP, account creation, activation, deact
   const create = page.getByRole('dialog', { name: 'Créer un compte administrateur' })
   await create.getByLabel('Adresse email').fill('reviewer.e2e@ifri.example')
   await create.getByLabel('Nom affiché').fill('Vérificatrice GL')
-  await create.getByLabel(/Vérificateur des dossiers/).check()
-  await create.getByLabel('Certaines filières').check()
-  await create.getByLabel(/Génie Logiciel/).check()
+  await create.getByLabel(/Directeur adjoint/).check()
+  await create.getByLabel(/Agent du secrétariat exécutif/).check()
+  await expect(create.getByLabel(/Directeur adjoint/)).not.toBeChecked()
   await checkpoint(page, 'create-account')
   await create.getByRole('button', { name: 'Créer le compte' }).click()
   const linkDialog = page.getByRole('alertdialog', { name: 'Lien d’activation' })

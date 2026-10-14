@@ -2,6 +2,8 @@
 import { computed, ref, watch } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import {
+  FileCheck2,
+  FolderOpen,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -25,11 +27,26 @@ const links = computed(() =>
       icon: LayoutDashboard,
       permission: 'dashboard.view',
     },
+    {
+      name: 'admin-applications',
+      label: 'Candidatures',
+      icon: FolderOpen,
+      permission: 'applications.read',
+    },
+    {
+      name: 'admin-corrections',
+      label: 'Corrections à décider',
+      icon: FileCheck2,
+      permission: 'corrections.decide',
+    },
     { name: 'admin-accounts', label: 'Comptes', icon: Users, permission: 'accounts.read' },
     { name: 'admin-audit', label: 'Journal d’audit', icon: ScrollText, permission: 'audit.read' },
     { name: 'admin-account', label: 'Mon compte', icon: UserCog, permission: '' },
   ].filter((link) => !link.permission || store.can(link.permission)),
 )
+// A dossier belongs to the "Candidatures" entry of the navigation.
+const current = (name: string) =>
+  route.name === name || (name === 'admin-applications' && route.name === 'admin-application')
 watch(
   () => route.fullPath,
   () => {
@@ -83,7 +100,7 @@ async function logout() {
             <RouterLink
               :to="{ name: link.name }"
               class="admin-nav-link"
-              :aria-current="route.name === link.name ? 'page' : undefined"
+              :aria-current="current(link.name) ? 'page' : undefined"
               ><component :is="link.icon" :size="20" aria-hidden="true" />{{
                 link.label
               }}</RouterLink

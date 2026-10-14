@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createMemoryHistory, createRouter, type Router } from 'vue-router'
 import type { Component } from 'vue'
 import { adminApi, type AdminSession, type Account } from '@/features/admin/api'
+import { reviewApi } from '@/features/review/api'
 import { adminGuard } from '@/features/admin/guard'
 import { useAdminStore } from '@/features/admin/store'
 import { ApiError } from '@/lib/api'
@@ -20,8 +21,14 @@ vi.mock('@/features/admin/api', async (original) => {
   const fns = Object.fromEntries(Object.keys(actual.adminApi).map((key) => [key, vi.fn()]))
   return { ...actual, adminApi: fns }
 })
+vi.mock('@/features/review/api', async (original) => {
+  const actual = await original<typeof import('@/features/review/api')>()
+  const fns = Object.fromEntries(Object.keys(actual.reviewApi).map((key) => [key, vi.fn()]))
+  return { ...actual, reviewApi: fns }
+})
 
 const active = (permissions: string[], extra: Partial<AdminSession> = {}): AdminSession => ({
+  id: 'me',
   stage: 'ACTIVE',
   csrfToken: 'csrf',
   email: 'super@ifri.example',
@@ -43,7 +50,7 @@ const account = (overrides: Partial<Account> = {}): Account => ({
   lastLoginAt: null,
   createdAt: '2026-10-14T08:00:00Z',
   activationExpiresAt: null,
-  grants: [{ role: 'REVIEWER', program: 'GL', programName: 'Génie Logiciel' }],
+  grants: [{ role: 'REVIEWER' }],
   ...overrides,
 })
 
@@ -97,6 +104,24 @@ function makeRouter() {
         name: 'admin-audit',
         component: stub,
         meta: { admin: 'audit.read' },
+      },
+      {
+        path: '/admin/candidatures',
+        name: 'admin-applications',
+        component: stub,
+        meta: { admin: 'applications.read' },
+      },
+      {
+        path: '/admin/candidatures/:id',
+        name: 'admin-application',
+        component: stub,
+        meta: { admin: 'applications.read' },
+      },
+      {
+        path: '/admin/corrections',
+        name: 'admin-corrections',
+        component: stub,
+        meta: { admin: 'corrections.decide' },
       },
     ],
   })
@@ -314,36 +339,36 @@ describe('accounts', () => {
         }),
       ],
     })
-    vi.mocked(adminApi.programs).mockResolvedValue({
-      programs: [
-        { code: 'GL', name: 'Génie Logiciel' },
-        { code: 'IM', name: 'Internet et Multimédia' },
-      ],
-    })
   })
 
-  it('creates a scoped account and shows its activation link once', async () => {
+  it('creates an account with exactly one role and shows its activation link once', async () => {
     const w = await open(AdminAccountsPage, '/admin/comptes', active(superPermissions))
     expect(w.findAll('tbody tr')).toHaveLength(2)
-    expect(w.text()).toContain('Vérificateur des dossiers · GL')
+    expect(w.text()).toContain('Agent du secrétariat exécutif')
     await button(w, 'Créer un compte').trigger('click')
     await flushPromises()
     expect(HTMLDialogElement.prototype.showModal).toHaveBeenCalled()
-    await w.get('#new-email').setValue('im@ifri.example')
-    await w.get('#new-name').setValue('Responsable IM')
+    // Roles are radio buttons of one group: choosing a second one replaces the first.
+    const radios = w.findAll('input[name="create-role"]')
+    expect(radios).toHaveLength(5)
+    expect(radios.every((radio) => radio.attributes('type') === 'radio')).toBe(true)
+    expect(w.find('.grant-programs').exists()).toBe(false)
+    await w.get('form#create-account').trigger('submit')
+    await flushPromises()
+    expect(w.text()).toContain('Choisissez le rôle du compte.')
+    expect(adminApi.createAccount).not.toHaveBeenCalled()
+    await w.get('#new-email').setValue('da@ifri.example')
+    await w.get('#new-name').setValue('Directeur adjoint')
     await w.get('#create-role-REVIEWER').setValue(true)
-    await flushPromises()
-    await w.find('input[name="create-scope-REVIEWER"][value="some"]').setValue(true)
-    await flushPromises()
-    const programs = w.findAll('.grant-programs input')
-    await programs[1]!.setValue(true)
+    await w.get('#create-role-DEPUTY_DIRECTOR').setValue(true)
     await flushPromises()
     vi.mocked(adminApi.createAccount).mockResolvedValue({
       account: account({
         id: 'new',
-        email: 'im@ifri.example',
-        displayName: 'Responsable IM',
+        email: 'da@ifri.example',
+        displayName: 'Directeur adjoint',
         status: 'PENDING_ACTIVATION',
+        grants: [{ role: 'DEPUTY_DIRECTOR' }],
       }),
       activationUrl: 'http://localhost:5173/admin/activation#token',
       expiresAt: '2026-10-17T08:00:00Z',
@@ -351,9 +376,9 @@ describe('accounts', () => {
     await w.get('form#create-account').trigger('submit')
     await flushPromises()
     expect(adminApi.createAccount).toHaveBeenCalledWith({
-      email: 'im@ifri.example',
-      displayName: 'Responsable IM',
-      grants: [{ role: 'REVIEWER', program: 'IM' }],
+      email: 'da@ifri.example',
+      displayName: 'Directeur adjoint',
+      grants: [{ role: 'DEPUTY_DIRECTOR', program: '' }],
     })
     expect((w.get('#activation-url').element as HTMLInputElement).value).toBe(
       'http://localhost:5173/admin/activation#token',
@@ -456,24 +481,62 @@ describe('own account and navigation', () => {
     expect(useAdminStore().notice).toContain('Mot de passe modifié')
   })
 
-  it('shows only the menu entries a role can use, and an empty dashboard', async () => {
+  it('shows only the menu entries a role can use, and the review counters', async () => {
+    vi.mocked(reviewApi.dashboard).mockResolvedValue({
+      counters: [
+        { program: 'GL', programName: 'Génie Logiciel', status: 'TO_REVIEW', count: 7 },
+        { program: 'GL', programName: 'Génie Logiciel', status: 'VALIDATED', count: 2 },
+        { program: 'SI', programName: 'Sécurité Informatique', status: 'IN_REVIEW', count: 1 },
+      ],
+      unassigned: 7,
+      mine: 1,
+      pendingCorrections: 0,
+    })
     const w = await open(
       AdminDashboardPage,
       '/admin',
-      active(['applications.read', 'applications.review', 'dashboard.view'], {
-        grants: [{ role: 'REVIEWER', program: 'GL' }],
-      }),
+      active(
+        [
+          'applications.read',
+          'corrections.propose',
+          'dashboard.view',
+          'ranking.read',
+          'review.claim',
+          'review.decide',
+        ],
+        { grants: [{ role: 'REVIEWER' }] },
+      ),
     )
     const nav = w.get('nav[aria-label="Administration"]')
     expect(nav.text()).toContain('Tableau de bord')
+    expect(nav.text()).toContain('Candidatures')
+    expect(nav.text()).not.toContain('Corrections à décider')
     expect(nav.text()).not.toContain('Comptes')
     expect(nav.text()).not.toContain('Journal')
     expect(nav.find('[aria-current="page"]').text()).toContain('Tableau de bord')
-    expect(w.text()).toContain('Aucun dossier à traiter pour le moment')
-    expect(w.text()).toContain('Vérificateur des dossiers (GL)')
+    expect(w.text()).toContain('Agent du secrétariat exécutif')
+    expect(w.text()).toContain('Mes dossiers en vérification')
+    const gl = w.findAll('tbody tr').find((row) => row.text().includes('Génie Logiciel'))!
+    expect(gl.findAll('td').map((cell) => cell.text())).toEqual(['7', '0', '2', '0', '9'])
+    expect(w.get('tfoot').text()).toContain('10')
+    expect(w.find('[data-testid="coverage-warning"]').exists()).toBe(false)
     vi.mocked(adminApi.logout).mockResolvedValue({ loggedOut: true })
     await button(w, 'Déconnexion').trigger('click')
     await flushPromises()
     expect(router.currentRoute.value.name).toBe('admin-login')
+  })
+})
+
+describe('technical administrator dashboard', () => {
+  it('warns when no deputy director or director account is active', async () => {
+    vi.mocked(reviewApi.dashboard).mockResolvedValue({
+      coverage: { deputyDirector: false, director: true },
+    })
+    const w = await open(AdminDashboardPage, '/admin', active(superPermissions))
+    const warning = w.get('[data-testid="coverage-warning"]')
+    expect(warning.text()).toContain('Aucun directeur adjoint actif')
+    expect(warning.text()).not.toContain('Aucun directeur actif')
+    expect(w.text()).toContain('jamais aux dossiers des candidats')
+    expect(w.get('nav[aria-label="Administration"]').text()).not.toContain('Candidatures')
   })
 })
