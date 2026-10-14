@@ -3,3 +3,6 @@ __pycache__
 .pytest_cache
 .ruff_cache
 *.egg-info
+
+# Real documents are local calibration data, never build context or tracked artifacts.
+tests/private-fixtures/

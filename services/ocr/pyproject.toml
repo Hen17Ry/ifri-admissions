@@ -5,9 +5,9 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "ifri-ocr"
 version = "0.1.0"
-description = "Technical bootstrap for the IFRI document worker; no OCR implementation"
+description = "IFRI private transcript extraction worker"
 requires-python = ">=3.14,<3.15"
-dependencies = ["redis==7.4.0"]
+dependencies = ["redis==7.4.0", "PyMuPDF==1.28.2", "RapidFuzz==3.14.6", "opencv-python-headless==4.13.0.92", "numpy==2.4.6"]
 
 [project.scripts]
 ifri-ocr = "ifri_ocr.worker:main"
@@ -20,6 +20,7 @@ where = ["src"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+norecursedirs = ["private-fixtures", ".venv"]
 pythonpath = ["src"]
 
 [tool.ruff]

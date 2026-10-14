@@ -20,3 +20,6 @@ Thumbs.db
 apps/web/browser-artifacts/
 apps/web/test-results/
 apps/web/playwright-report/
+
+# Real documents are local calibration data, never build context or tracked artifacts.
+services/ocr/tests/private-fixtures/

@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ArrowLeft, ArrowRight, Check, LockKeyhole } from 'lucide-vue-next'
+import AnalysisStep from '@/features/analysis/AnalysisStep.vue'
+import { analysisApi, type TranscriptAnalysis } from '@/features/analysis/api'
 import CandidateLayout from '@/layouts/CandidateLayout.vue'
 import FormField from '@/components/ui/FormField.vue'
 import UiButton from '@/components/ui/UiButton.vue'
@@ -29,6 +31,14 @@ const saveStatus = ref('')
 const programs = ref<Program[]>([])
 const programsLoading = ref(false)
 const programsError = ref('')
+const analysis = ref<TranscriptAnalysis | null>(null)
+const replacementRequested = ref(false)
+const needsReplacement = computed(
+  () =>
+    replacementRequested.value ||
+    analysis.value?.candidateConfirmation === 'REJECTED' ||
+    ['FAILED', 'LOW_CONFIDENCE', 'OBSOLETE'].includes(analysis.value?.status ?? ''),
+)
 const documents = ref<DocumentListing | null>(null)
 const documentsLoading = ref(false)
 const documentsError = ref('')
@@ -69,7 +79,15 @@ const reachable = computed(() => {
   const d = store.draft
   if (!d || Object.keys(profileErrors(d.profile)).length) return 0
   if (!d.qualification || !d.graduationYear) return 1
-  return d.program ? (documents.value?.complete ? 4 : 3) : 2
+  return d.program
+    ? documents.value?.complete
+      ? needsReplacement.value
+        ? 3
+        : analysis.value?.verificationReady
+          ? 4
+          : 3
+      : 3
+    : 2
 })
 let ready = false
 let timer: ReturnType<typeof setTimeout> | undefined
@@ -77,6 +95,10 @@ let queue: Promise<void> = Promise.resolve()
 let revision = 0
 let programsRequest = 0
 
+function reviewAnalysis(value: TranscriptAnalysis) {
+  analysis.value = value
+  if (!value.verificationReady) void goTo(3)
+}
 async function hydrate(d: Draft) {
   ready = false
   Object.assign(profile, d.profile)
@@ -90,6 +112,7 @@ async function hydrate(d: Draft) {
   step.value = Math.min(reachable.value, 4)
 }
 async function load() {
+  replacementRequested.value = false
   clearTimeout(timer)
   await queue.catch(() => {})
   ready = false
@@ -99,6 +122,13 @@ async function load() {
   await store.restore()
   if (store.draft && !store.error) {
     await loadDocuments()
+    try {
+      analysis.value = await analysisApi.current()
+    } catch (e) {
+      analysis.value = null
+      if (asApiError(e).code === 'TRANSCRIPT_REPLACEMENT_REQUIRED')
+        replacementRequested.value = true
+    }
     await hydrate(store.draft)
   }
 }
@@ -106,11 +136,19 @@ async function start() {
   await store.start()
   if (store.draft && !store.error) {
     await loadDocuments()
+    try {
+      analysis.value = await analysisApi.current()
+    } catch (e) {
+      analysis.value = null
+      if (asApiError(e).code === 'TRANSCRIPT_REPLACEMENT_REQUIRED')
+        replacementRequested.value = true
+    }
     await hydrate(store.draft)
   }
 }
 function fail(e: unknown) {
   const error = asApiError(e)
+  if (error.code === 'TRANSCRIPT_REPLACEMENT_REQUIRED') replacementRequested.value = true
   errorMessage.value = error.message
   errors.value = error.fields
   saveStatus.value = 'Modifications non enregistrées'
@@ -141,6 +179,16 @@ function persist(kind: string): Promise<void> {
       const previous = store.draft.program?.code
       const saved = await draftApi.patch(kind, { ...snapshot, version: store.draft.version })
       store.draft = saved
+      if (kind !== 'profile') {
+        analysis.value = null
+        replacementRequested.value = false
+        try {
+          analysis.value = await analysisApi.current()
+        } catch (e) {
+          if (asApiError(e).code === 'TRANSCRIPT_REPLACEMENT_REQUIRED')
+            replacementRequested.value = true
+        }
+      }
       if (kind === 'academic-background' && previous && !saved.program) {
         ready = false
         program.value = ''
@@ -229,6 +277,12 @@ async function loadDocuments() {
   }
 }
 function documentSaved(list: DocumentListing) {
+  const previous = documents.value?.documents.find(
+    (document) => document.type === 'TRANSCRIPT',
+  )?.version
+  const current = list.documents.find((document) => document.type === 'TRANSCRIPT')?.version
+  replacementRequested.value = needsReplacement.value && previous === current
+  if (previous !== current) analysis.value = null
   errorMessage.value = ''
   documents.value = list
   if (store.draft) store.draft.version = list.applicationVersion
@@ -243,8 +297,12 @@ function uploadBusy(busy: boolean) {
 }
 async function finishDocuments() {
   await loadDocuments()
-  if (documents.value?.complete && !documentsError.value) {
-    step.value = 4
+  if (!documents.value?.complete || documentsError.value) return
+  try {
+    analysis.value = await analysisApi.current()
+    if (analysis.value.verificationReady && !needsReplacement.value) step.value = 4
+  } catch (e) {
+    fail(e)
   }
 }
 async function advance() {
@@ -289,6 +347,12 @@ async function goTo(target: number) {
   }
   errors.value = {}
   step.value = target
+}
+async function replaceTranscript() {
+  replacementRequested.value = true
+  await goTo(3)
+  await nextTick()
+  document.getElementById('file-TRANSCRIPT')?.focus()
 }
 function beforeUnload(event: BeforeUnloadEvent) {
   if (dirty.value || active.value) event.preventDefault()
@@ -497,6 +561,10 @@ onBeforeUnmount(() => {
             </div>
           </form>
           <div v-else-if="step === 3" class="mt-6">
+            <UiAlert v-if="needsReplacement" title="Un nouveau relevé est nécessaire."
+              >Remplacez votre relevé pour permettre une nouvelle analyse. Les autres documents sont
+              conservés.</UiAlert
+            >
             <UiSkeleton v-if="documentsLoading" />
             <UiAlert v-else-if="documentsError" :title="documentsError" error
               ><UiButton variant="secondary" @click="loadDocuments">Réessayer</UiButton></UiAlert
@@ -504,18 +572,34 @@ onBeforeUnmount(() => {
             <DocumentsStep
               v-else-if="documents"
               :listing="documents"
+              :highlight="needsReplacement ? 'TRANSCRIPT' : undefined"
               :disabled="sessionLocked"
               @saved="documentSaved"
               @busy="uploadBusy"
               @failure="fail"
-            />
+            >
+              <template #transcript-analysis="{ document }">
+                <AnalysisStep
+                  :key="`${document.version}-${store.draft.qualification?.code}-${store.draft.program?.code}`"
+                  :version="store.draft.version"
+                  :disabled="active > 0 || sessionLocked"
+                  @changed="analysis = $event"
+                  @replace="replaceTranscript"
+                  @failure="fail"
+                />
+              </template>
+            </DocumentsStep>
             <div class="flow-actions">
-              <UiButton variant="secondary" :disabled="active > 0" @click="goTo(2)">Retour</UiButton
-              ><UiButton
+              <UiButton variant="secondary" :disabled="active > 0" @click="goTo(2)"
+                >Retour</UiButton
+              >
+              <UiButton
                 :disabled="
                   active > 0 ||
                   documentsLoading ||
                   !documents?.complete ||
+                  !analysis?.verificationReady ||
+                  needsReplacement ||
                   !!documentsError ||
                   sessionLocked
                 "
@@ -582,6 +666,12 @@ onBeforeUnmount(() => {
               </div>
               <DocumentsStep v-if="documents" :listing="documents" readonly />
             </section>
+            <AnalysisStep
+              :version="store.draft.version"
+              readonly
+              @changed="reviewAnalysis"
+              @failure="fail"
+            />
             <UiAlert title="Votre candidature reste un brouillon." class="mt-6"
               >Aucune soumission définitive n’est effectuée à cette étape. Vous pouvez fermer cette
               page et retrouver les informations enregistrées sur ce navigateur tant que votre

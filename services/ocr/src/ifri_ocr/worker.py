@@ -1,17 +1,24 @@
+import json
+import os
+import shutil
 import signal
+import socket
+import subprocess
 import sys
 from pathlib import Path
 from tempfile import gettempdir
-from threading import Event
+from threading import Event, Thread
 from time import time
+from urllib.parse import urlparse
 
 from redis import Redis
 from redis.exceptions import RedisError
 
 from ifri_ocr.config import Config
+from ifri_ocr.jobs import GROUP, STREAM, InternalClient, process
 from ifri_ocr.logging import configure
 
-# Internal heartbeat only: no public HTTP API, no queue consumer.
+# Internal heartbeat: separate thread keeps Redis readiness fresh during bounded analysis.
 HEARTBEAT = Path(gettempdir()) / "ifri-ocr-heartbeat"
 
 
@@ -30,7 +37,7 @@ def connect(config: Config) -> Redis:
 def bootstrap(config: Config, client: Redis) -> None:
     if not client.ping():
         raise RuntimeError("Redis readiness check failed")
-    configure(config.environment).info("Worker ready; document processing is not enabled")
+    configure(config.environment).info("Worker Redis connection ready")
 
 
 def healthcheck() -> int:
@@ -58,16 +65,90 @@ def main() -> int:
     client = connect(config)
     try:
         bootstrap(config, client)
+        base = os.environ.get("OCR_INTERNAL_URL", "")
+        secret = os.environ.get("OCR_INTERNAL_SECRET", "")
+        if (
+            len(secret) < 32
+            or urlparse(base).scheme not in {"http", "https"}
+            or not urlparse(base).hostname
+        ):
+            raise RuntimeError("OCR internal configuration invalid")
+        if config.environment == "production" and (
+            secret.startswith("replace-dev-") or urlparse(base).scheme != "https"
+        ):
+            raise RuntimeError("Production OCR internal configuration invalid")
+        from ifri_ocr.scans import ScanSettings
+
+        ScanSettings.load()
+        timeout = int(os.environ.get("OCR_ANALYSIS_TIMEOUT_SECONDS", "120"))
+        minimum = float(os.environ.get("OCR_MIN_CONFIDENCE", "0.85"))
+        if not 10 <= timeout <= 240 or not 0.5 <= minimum <= 1:
+            raise RuntimeError("OCR limits invalid")
+        page_timeout = int(os.environ.get("OCR_PAGE_TIMEOUT_SECONDS", "30"))
+        max_pages = int(os.environ.get("OCR_MAX_PAGES", "10"))
+        if not 5 <= page_timeout <= 120 or not 1 <= max_pages <= 100:
+            raise RuntimeError("OCR page limits invalid")
+        if not shutil.which("tesseract"):
+            raise RuntimeError("Tesseract required")
+        languages = subprocess.run(
+            ["tesseract", "--list-langs"], capture_output=True, check=True, timeout=5
+        ).stdout.decode()
+        if not all(language in languages.split() for language in ("fra", "eng")):
+            raise RuntimeError("Tesseract fra/eng required")
+        api = InternalClient(base, secret)
+        if not api.ready():
+            raise RuntimeError("Internal API readiness failed")
+        try:
+            client.xgroup_create(STREAM, GROUP, id="0", mkstream=True)
+        except RedisError as error:
+            if "BUSYGROUP" not in str(error):
+                raise
+
+        def heartbeat():
+            while not stop.is_set():
+                try:
+                    if client.ping() and api.ready():
+                        HEARTBEAT.write_text(str(time()))
+                except RedisError, OSError:
+                    HEARTBEAT.unlink(missing_ok=True)
+                stop.wait(5)
+
+        pulse = Thread(target=heartbeat, daemon=True)
+        pulse.start()
+        consumer = socket.gethostname()
+        logger.info("Worker ready; hybrid extraction enabled")
         while not stop.is_set():
-            if not client.ping():
-                raise RuntimeError("Redis readiness check failed")
-            HEARTBEAT.write_text(str(time()))
-            stop.wait(5)
-    except RedisError, RuntimeError, OSError:
+            reclaimed = client.xautoclaim(
+                STREAM, GROUP, consumer, min_idle_time=300000, start_id="0-0", count=1
+            )
+            messages = reclaimed[1]
+            if not messages:
+                batches = client.xreadgroup(GROUP, consumer, {STREAM: ">"}, count=1, block=1000)
+                messages = batches[0][1] if batches else []
+            for message_id, fields in messages:
+                try:
+                    job = json.loads(fields["job"])
+                    started = time()
+                    if process(job, api, timeout, minimum, stop):
+                        client.xack(STREAM, GROUP, message_id)
+                    logger.info(
+                        "Analysis callback acknowledged",
+                        extra={
+                            "analysis_id": job["analysisId"],
+                            "document_version_id": job["documentVersionId"],
+                            "duration_seconds": round(time() - started, 3),
+                        },
+                    )
+                except RuntimeError, OSError, ValueError, KeyError:
+                    logger.error("Analysis transport failed; pending job retained")
+    except RedisError, RuntimeError, OSError, ValueError, subprocess.SubprocessError:
         # Redis exceptions can include connection details; never log credentials.
         logger.error("Worker unavailable: Redis connection or heartbeat failed")
         return 1
     finally:
+        stop.set()
+        if "pulse" in locals():
+            pulse.join(timeout=6)
         HEARTBEAT.unlink(missing_ok=True)
         client.close()
     logger.info("Worker stopped")

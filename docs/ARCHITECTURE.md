@@ -142,3 +142,25 @@ Cookie opaque court périmètre, hash PostgreSQL, durée configurable ; Origin o
 Module Go documents → autorisation drafts/référentiels → validation temporaire qpdf → port storage.Objects → adaptateur S3 → repository pgx transactionnel. SDK fournisseur confiné à platform/storage ; API sert le contenu privé, aucun accès direct public au bucket.
 
 Upload limité et temporaire, SHA-256, stockage puis metadata ; compensation sur échec certain et conservation sur commit indéterminé. Détails et limites dans DOCUMENT_WORKFLOW. Vue utilise la couche API existante (multipart sans imposer de boundary), documents serveur et version optimiste du brouillon ; cinq étapes sans OCR/soumission.
+
+## Phase 5 — implémentation en validation
+
+Go analysis orchestre la file durable/Streams, autorise les lectures candidat, valide le callback et les confirmations. Le worker Python consomme le groupe Redis et extrait le PDF dans un sous-processus borné. PDF privé fourni par listener Go interne 8081 via abstraction S3 existante, sans credentials stockage exposés au worker ; callback Bearer secret interne. Listener distinct de l’API publique 8080, aucun port interne publié. Frontend ne parle qu’à /api/v1 et poll toutes les 3–10 secondes, maximum 60 lectures automatiques, arrêt terminal.
+
+Vue ajoute étape Analyse (lecture seule, confirmation explicite, rejet avec confirmation puis remplacement), puis Vérification gouvernée par verificationReady serveur. Documents/master conservés. Les tests réels du pipeline et performances restent à exécuter ; PHASE5_VALIDATION recense les preuves.
+
+## Phase 5.1 — correction en validation
+
+Orchestration backend et Redis de phase 5 conservée : déclenchement déjà automatique dans transaction document/contexte. Aucun endpoint public de lancement à supprimer, aucun nouvel endpoint de mutation scolaire. Evidence JSON enrichie de métadonnées de profil/preprocessing bornées ; migration existante inchangée.
+
+Vue : cinq étapes, analyse montée dans un slot de la carte du relevé, clé version/contexte pour invalider l’affichage précédent. API de lecture et confirmation existante ; aucune action candidate pour lancer/rejouer l’OCR. Worker : modules layouts, preprocessing et scans séparés du port Tesseract ; texte natif conservé, scans RGB à 300 DPI, variantes/PSM bornés et géométrie inverse. Corpus privé isolé des contextes de build, fixtures synthétiques publiques pour régression.
+
+### Stratégie BAC général par cellules — correction demandée
+
+La stratégie active pour les scans BAC général remplace les essais OCR globaux par : correction géométrique prudente (contour de page quadrilatéral crédible, puis deskew), binarisation du canal V HSV (= max RGB), ancres du premier groupe écrit et Total écrit, reconstruction morphologique d'une grille de cinq colonnes fixes, OCR PSM7 de chaque cellule agrandie ×3. Whitelist numérique `0123456789,.`. Les en-têtes OCR ne déterminent plus les colonnes. Les tables sans séparateurs horizontaux internes utilisent les bandes de texte numérique pour reconstruire les séparations ; une géométrie ou des cellules incohérentes imposent NEEDS_REVIEW. Les profils génériques conservent leur chemin existant.
+
+La liste fermée documentaire des matières BAC sert au matching ; elle ne remplace pas le snapshot des matières d'admission. Notes et coefficients viennent toujours de leurs propres cellules. Points = note × coefficient et Sur = 20 × coefficient sont vérifiés exactement sur chaque ligne, puis les sommes coefficient/points/Sur sont comparées au Total écrit. La note récapitulative imprimée peut être arrondie ou tronquée au centième : contrôle secondaire avec tolérance `0,01 × coefficient total` ; aucun résultat de moyenne d'admission n'est créé.
+
+Sur demande explicite de l'utilisateur, ces preuves arithmétiques remplacent le seuil Tesseract **uniquement pour ce profil**. Les confiances réelles restent présentes. Go revérifie indépendamment les produits, sommes, ligne sélectionnée et bornes de valeurs avec `big.Rat` avant acceptation d'une extraction à faible confiance. Les lignes incohérentes portent NEEDS_REVIEW dans le diagnostic ; le résultat conserve l'état terminal existant LOW_CONFIDENCE avec failureCode NEEDS_REVIEW, afin de ne pas inventer un circuit administratif de phase 6.
+
+Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs parsées, contrôles par ligne, contrôles des totaux et série. Aucun en-tête d'identité, texte de page complet, hash ou PDF n'est exporté. Calibration via `ocr_private_run.py` ; l'ancien argument `--evaluate` utilise désormais la même stratégie, sans matrice de variantes. Les anciens benchmarks sont historiques et ne valident pas ce nouveau chemin. Test réel et régression Docker restent à mesurer. RapidOCR sera évalué sur les mêmes cellules seulement si la lecture numérique reste insuffisante, après vérification de compatibilité Python 3.14.

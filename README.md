@@ -1,6 +1,6 @@
 # IFRI Admissions
 
-Plateforme d’admissions IFRI/UAC : bootstrap technique validé et référentiels de phase 2 en lecture. Page Vue technique, API Go et worker Python sans OCR, avec PostgreSQL, Redis et MinIO privés en développement local. Aucun parcours candidat ou administratif n’est développé.
+Plateforme d’admissions IFRI/UAC : phases 1 à 4 validées, parcours candidat en brouillon et PDF privés versionnés. La phase 5 ajoute l’analyse hybride du relevé et sa confirmation, validées sur fixtures synthétiques. La phase 5.1 corrective est en validation. Aucun calcul de moyenne, soumission définitive ou espace administrateur.
 
 **Bootstrap technique validé** : dépendances et locks, contrôles frontend/Go/Python, stack Docker et smoke check réels, persistance du volume PostgreSQL, panne/reprise de readiness, arrêt propre du worker et appel Vue → API confirmé dans le navigateur. Contrôles visuels approfondis et CI GitHub non exécutés. Voir [le rapport exact](docs/BOOTSTRAP_VALIDATION.md).
 
@@ -27,7 +27,7 @@ docs/                     Spécifications, ADR, roadmap et validation
 design-system/            Source de vérité visuelle existante
 ```
 
-L’API est la source future des décisions métier. Le worker ne dispose ni d’une API publique ni d’un accès PostgreSQL. Il ne consomme aucune queue : il vérifie Redis et maintient un heartbeat uniquement. Nginx n’intervient pas dans ce bootstrap.
+L’API est la source future des décisions métier. Le worker ne dispose ni d’une API publique ni d’un accès PostgreSQL. Depuis la phase 5, il consomme Redis Streams et maintient un heartbeat indépendant du traitement documentaire. Nginx n’intervient pas dans ce bootstrap.
 
 ## Configuration
 
@@ -37,13 +37,13 @@ Depuis la racine :
 Copy-Item .env.example .env
 ```
 
-Remplacer les trois mots de passe `replace-dev-*` par des valeurs locales propres. Ces exemples sont publics, réservés au développement. `.env` est ignoré ; aucun secret ne doit porter un préfixe `VITE_`. Dans ce bootstrap, utiliser des valeurs simples sans commentaires en fin de ligne ; les scripts acceptent `KEY=value` et des valeurs entièrement citées.
+Remplacer toutes les valeurs de credentials `replace-dev-*` par des valeurs locales propres. Ces exemples sont publics, réservés au développement. `.env` est ignoré ; aucun secret ne doit porter un préfixe `VITE_`. Dans ce bootstrap, utiliser des valeurs simples sans commentaires en fin de ligne ; les scripts acceptent `KEY=value` et des valeurs entièrement citées.
 
 `.env.example` utilise des adresses loopback pour les exécutions natives, dont `API_HOST=127.0.0.1` ; Compose impose `API_HOST=0.0.0.0` à l’intérieur du conteneur et publie seulement sur le loopback hôte. Compose remplace les hôtes par `postgres`, `redis` et `minio`, et conserve leurs ports internes standards. API_PORT et MINIO_API_PORT/MINIO_CONSOLE_PORT configurent les publications hôte. PostgreSQL et Redis restent privés dans Docker par défaut ; leurs variables HOST/PORT servent aux exécutions natives et à l’override optionnel. Aligner MINIO_ENDPOINT sur MINIO_API_PORT pour le smoke check et l’API native. L’API en conteneur reçoit automatiquement `http://minio:9000`. Vite lit uniquement `API_PORT` du `.env` racine pour son proxy technique.
 
 `FRONTEND_ORIGIN` vaut `http://localhost:5173`. Toute autre origine est refusée par l’API ; aucune origine `*`. Le serveur Vite écoute uniquement le loopback. Ouvrir l’URL documentée ci-dessous.
 
-Ce Compose est **local**, pas une configuration production. L’API refuse notamment HTTP pour ses origines/endpoints en production, PostgreSQL sans `verify-full`, Redis sans TLS et les mots de passe exemples. TLS, comptes de service S3 limités, authentification et déploiement sécurisé seront configurés dans les phases prévues. Seul l’initialiseur MinIO reçoit les credentials root ; l’API ne reçoit aucun credential S3 tant qu’elle ne fait pas d’opération documentaire.
+Ce Compose est **local**, pas une configuration production. L’API refuse notamment HTTP pour ses origines/endpoints en production, PostgreSQL sans `verify-full`, Redis sans TLS et les mots de passe exemples. TLS, comptes de service S3 limités, authentification et déploiement sécurisé seront configurés dans les phases prévues. Seul l’initialiseur MinIO reçoit les credentials root ; l’API reçoit un compte S3 limité depuis la phase 4 ; le worker lit le PDF via le listener interne Go sans credential S3.
 
 ## Démarrage habituel
 
@@ -89,7 +89,7 @@ Set-Location ../..
 python infra/scripts/dev.py worker
 ```
 
-Le worker échoue si la configuration ou Redis sont invalides, écrit des logs JSON et s’arrête proprement avec Ctrl+C. Son healthcheck lit un heartbeat temporaire, renouvelé seulement après un PING Redis réussi ; un heartbeat périmé ne vaut pas « prêt ». Aucune donnée documentaire n’est traitée.
+Le worker échoue si la configuration ou Redis sont invalides, écrit des logs JSON et s’arrête proprement avec Ctrl+C. Son healthcheck lit un heartbeat temporaire, renouvelé seulement après un PING Redis réussi ; un heartbeat périmé ne vaut pas « prêt ». Depuis la phase 5, l’extraction traite les relevés éligibles de façon asynchrone ; un document illisible ne fait pas échouer la liveness.
 
 ## Health checks et ports
 
@@ -148,7 +148,7 @@ uv run --no-sync ruff check .
 uv run --no-sync ruff format --check .
 ```
 
-Le projet Python possède un `pyproject.toml`, une `.venv` ignorée et des versions exactes, sans moteur OCR. Les tests couvrent configuration, PING initial, expiration du heartbeat et contexte des logs.
+Le projet Python possède un `pyproject.toml`, une `.venv` ignorée et des versions exactes, avec extraction PyMuPDF et moteur Tesseract en Docker depuis la phase 5. Les tests couvrent configuration, PING initial, expiration du heartbeat et contexte des logs.
 
 La CI minimale dans `.github/workflows/checks.yml` reprend les contrôles des trois stacks et un smoke check Compose. Elle ne publie rien. Elle n’a pas été exécutée sur GitHub dans cette session ; les installations y nécessitent les registres réseau.
 
@@ -254,3 +254,32 @@ npm run test:browser
 ```
 
 Les captures de toutes les étapes aux quatre largeurs sont dans browser-artifacts, ignoré par Git. Les fixtures et brouillons sont synthétiques ; aucune soumission. Ne pas détruire les volumes pour exécuter les tests.
+
+## Phase 5 en cours — dépendances OCR
+
+Python 3.14 conservé. Le worker utilise PyMuPDF/RapidFuzz et Tesseract système avec fra+eng, installés dans l’image Docker. Avant de reconstruire cette image, générer le lock officiel et synchroniser le projet :
+
+```powershell
+uv lock --project services/ocr
+uv sync --project services/ocr --locked
+```
+
+La nouvelle configuration requiert OCR_INTERNAL_SECRET aléatoire (32 caractères minimum), OCR_MIN_CONFIDENCE, OCR_ANALYSIS_TIMEOUT_SECONDS, OCR_PAGE_TIMEOUT_SECONDS et OCR_MAX_PAGES ; valeurs locales dans .env.example. Le secret ne doit jamais porter VITE_. Listener callback Go 8081 uniquement interne à Docker, aucune publication. Les tests réels et le benchmark sont encore en attente ; consulter PHASE5_VALIDATION. Aucun calcul ni soumission ajoutés.
+
+Validation OCR synthétique, après nouvelle stack reconstruite et migration appliquée :
+
+```powershell
+docker compose --profile test run --build --rm references-tests
+docker compose --profile test run --build --rm ocr-tests
+```
+
+Le second service réutilise le build du service ocr-worker via additional_contexts, exécute les tests Python et génère les fixtures via l’API réelle. Sorties dans services/ocr/tests/fixtures, benchmark.json inclus. Le dossier contient un README pour être présent dans un clone neuf. Sous Linux, le profil utilise UID/GID 1000 pour les artefacts ; adapter le champ user du profil si le propriétaire du workspace utilise un autre UID. La stack de développement doit avoir été reconstruite avant ce profil.
+
+
+## Phase 5.1 corrective — validation en cours
+
+L’analyse est automatique dans la carte du relevé : cinq étapes, confirmation/rejet dans Documents, aucun bouton de lancement OCR. Le chemin scan utilise désormais OpenCV headless/NumPy, profils de sections BAC, 300 DPI et passes bornées. Configuration dans .env.example ; matières toujours déterminées par référentiel, note/coefficient toujours lus du PDF.
+
+Après uv lock/sync, rebuild de la stack puis profil ocr-tests : tests Python, régression des 20 fixtures et benchmark scan/photo à fond de sécurité. Les résultats de phase 5 à 200 DPI ne prouvent pas ceux du nouveau pipeline. Voir docs/PHASE5_1_VALIDATION.md.
+
+`python infra/scripts/ocr_private_run.py` exécute la calibration privée via bind mount read-only, seulement si `services/ocr/tests/private-fixtures/Relever.pdf` et son oracle.json existent localement. Ce dossier est ignoré Git et exclu des deux contextes Docker. Le PDF n’est jamais intégré à une image. L’oracle local contient uniquement codes matière et couples note/coefficient attendus, sans identité. Sur un clone sans ce document : NON TESTÉ, aucun blocage de la suite normale. Aucun OCR intégral, nom ou hash privé journalisé.

@@ -5,7 +5,12 @@ import UiAlert from '@/components/ui/UiAlert.vue'
 import type { ApplicationDocument, DocumentListing } from './api'
 import { documentsApi } from './api'
 import { asApiError } from '@/features/application/store'
-const props = defineProps<{ listing: DocumentListing; readonly?: boolean; disabled?: boolean }>()
+const props = defineProps<{
+  listing: DocumentListing
+  readonly?: boolean
+  disabled?: boolean
+  highlight?: string
+}>()
 const emit = defineEmits<{ saved: [DocumentListing]; busy: [boolean]; failure: [unknown] }>()
 const pending = ref('')
 const errors = ref<Record<string, string>>({})
@@ -60,6 +65,7 @@ function size(bytes: number) {
       <li
         v-for="document in listing.documents"
         :key="document.type"
+        :class="{ 'document-attention': highlight === document.type }"
         class="document-row"
         :aria-busy="pending === document.type"
       >
@@ -115,14 +121,20 @@ function size(bytes: number) {
           Pour remplacer ce document, choisissez un nouveau PDF. La version affichée reste
           disponible jusqu’à confirmation de l’envoi.
         </p>
+        <div
+          v-if="document.type === 'TRANSCRIPT' && document.uploaded"
+          class="transcript-analysis-inline"
+        >
+          <slot name="transcript-analysis" :document="document" />
+        </div>
       </li>
     </ul>
     <UiAlert
       v-if="!listing.complete && !readonly"
       title="Quatre documents sont nécessaires."
       class="mt-6"
-      >Vous pourrez accéder au récapitulatif lorsque le serveur aura confirmé les quatre
-      fichiers.</UiAlert
+      >Vous pourrez accéder au récapitulatif lorsque les quatre fichiers seront présents et les
+      informations du relevé confirmées.</UiAlert
     >
   </div>
 </template>

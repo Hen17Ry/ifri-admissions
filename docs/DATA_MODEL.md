@@ -1,6 +1,6 @@
 # Modèle conceptuel de données
 
-Modèle cible ; la phase 2 implémente uniquement les huit tables de référentiels décrites ci-dessous. Identifiants opaques UUID ; timestamps UTC ; montants de notes/coefficients en `NUMERIC` avec précision à fixer selon corpus. Versions immuables pour règles, documents et résultats. Références campagne explicites pour empêcher les croisements entre années.
+Modèle cible, complété par les schémas concrets des phases 2 à 5 ci-dessous. Identifiants opaques UUID ; timestamps UTC ; montants de notes/coefficients en `NUMERIC` avec précision à fixer selon corpus. Versions immuables pour règles, documents et résultats. Références campagne explicites pour empêcher les croisements entre années.
 
 ## Entités
 | Entité | Données principales et relations |
@@ -111,3 +111,22 @@ Migration 00003, migrations 00001/00002 inchangées. `candidates` : UUID, last_n
 Migration 00004_application_documents.sql : application_documents (UUID, application_id, document_type, current_version_id, timestamps) et document_versions (UUID, application_document_id, version_number, storage_key, original_filename, content_type, size_bytes, sha256, created_at, replaced_at).
 
 Unique candidature/type, numéro positif unique par document, clé unique, taille positive, PDF MIME uniquement, SHA-256 hex64. Index partiel : une version non remplacée par document. FK composite différée + triggers différés : version courante existante, du même document, non remplacée. L’historique reste privé. Future analyse liée à document_version_id, aucune analyse ajoutée. Voir DOCUMENT_WORKFLOW.
+
+## Phase 5 — schéma exécuté et validé
+
+00005_ocr_analyses.sql ajoute ocr_analyses (application, document_version exact, grille, programme, qualification, snapshot expected_subjects, statut OCR, confirmation séparée, tentative, moteur/version, timestamps, digest résultat et dispatch) et ocr_extracted_subjects (matière/position, raw/value NUMERIC, page, confiance par champ, evidence JSON). Aucun coefficient dans le snapshot des matières attendues.
+
+Index unique de contexte non obsolète ; matières/positions uniques par analyse. Triggers transactionnels sur choix académique et version courante TRANSCRIPT : invalidation OBSOLETE puis nouvelle analyse si contexte éligible. Un contexte revisité crée une nouvelle analyse ; une analyse rejetée reste bloquée sur la même version. Anciennes analyses et confirmations conservées. Note 0..20, coefficient positif, confiance 0..1. Aucun calcul/numéro officiel ajouté.
+
+La migration 00005 ajoute aussi ocr_analysis_attempts : clé (analysis_id, tentative), digest du callback, statut technique rapporté, code d’échec, moteur/version, date. Les tentatives techniques restent auditables sans texte complet. contract_version=1 sur analyse ; trigger de propriété vérifie que le relevé appartient au dossier et que la grille/programme/qualification appartiennent à sa campagne.
+
+
+Phase 5.1 : evidence JSON enrichie de profile, section, preprocessing, dpi, psm et deskewDegrees optionnels validés par Go. Bbox toujours dans la page source normalisée, après inversion crop/deskew. Aucun changement de table ni migration 00005 ; anciennes preuves restent lisibles et immuables. Refresh et lecture frontend ne créent aucune ligne d’analyse.
+
+### Correction documentaire : notes dérivées exclusivement après trois totaux
+
+Instruction utilisateur prioritaire : quand Σ Coeff, Σ Points et Σ Sur lus correspondent tous aux cellules Total, la valeur retenue de chaque note est Points ÷ Coeff, avec `gradeStatus=VALIDATED_BY_TOTALS` et `gradeSource=POINTS_TOTALS`. La lecture brute/directe et sa divergence restent conservées. Coeff n'est jamais dérivé. Une somme fausse ou incomplète garde toutes les lignes en NEEDS_REVIEW. Les décimales non terminantes ne sont ni arrondies ni inventées. Go autorise une divergence note brute/valeur retenue uniquement pour ce mode avec preuve complète indépendante en rationnels exacts et coordonnées Points/Sur ; les autres extractions gardent l'égalité lecture brute/valeur. Aucun calcul de moyenne d'admission n'est introduit.
+
+Parseur : virgule décimale et séparateur final isolé acceptés (`18.`, `80 .`), sans assembler des chiffres séparés. Le contrôle Sur/Coeff ne dépend plus de la lisibilité de Note. Les noyaux morphologiques longs suppriment les traits sur chaque cellule avant agrandissement ; les crops de données ont une marge symétrique autour de leur propre bande, y compris Anglais, sans remonter à l'en-tête. Seuils de confiance inchangés.
+
+Dernier run privé : 40,398 s, NEEDS_REVIEW, 8 rangées correctement isolées ; les notes et totaux restent insuffisants. La nouvelle correction attend son run OCR réel. Validation locale avant relance : 74 tests Python et Go tests PASS ; aucune précision réelle déclarée acquise.

@@ -5,16 +5,20 @@ import (
 	"crypto/tls"
 	"fmt"
 	"log/slog"
+	"math"
 	"net"
 	"net/http"
 	"os"
 	"os/exec"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"ifri-admissions/services/api/internal/config"
+	"ifri-admissions/services/api/internal/modules/analysis"
 	"ifri-admissions/services/api/internal/modules/documents"
 	"ifri-admissions/services/api/internal/modules/drafts"
 	"ifri-admissions/services/api/internal/modules/references"
@@ -72,11 +76,47 @@ func run(logger *slog.Logger) error {
 		return fmt.Errorf("qpdf is required for PDF validation")
 	}
 
+	secret := os.Getenv("OCR_INTERNAL_SECRET")
+	if len(secret) < 32 || (c.Environment == "production" && strings.HasPrefix(secret, "replace-dev-")) {
+		return fmt.Errorf("OCR_INTERNAL_SECRET must contain at least 32 characters")
+	}
+	threshold, err := strconv.ParseFloat(os.Getenv("OCR_MIN_CONFIDENCE"), 64)
+	if err != nil || math.IsNaN(threshold) || math.IsInf(threshold, 0) || threshold < 0.5 || threshold > 1 {
+		return fmt.Errorf("OCR_MIN_CONFIDENCE must be between 0.5 and 1")
+	}
+	analysisRepo := analysis.Repository{Pool: pool, Threshold: threshold}
+	internal := http.NewServeMux()
+	analysisHandler := analysis.Handler{Logger: logger, Repo: analysisRepo, Origin: c.FrontendOrigin, Secret: secret, Objects: objects}
+	analysisHandler.Ready = func(ctx context.Context) error {
+		if err := pool.Ping(ctx); err != nil {
+			return err
+		}
+		if err := cache.Ping(ctx).Err(); err != nil {
+			return err
+		}
+		return storage.Readiness(c.MinioEndpoint)(ctx)
+	}
+	analysisHandler.RegisterInternal(internal)
+	internalServer := &http.Server{Addr: net.JoinHostPort(c.Host, "8081"), Handler: internal, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second}
+	internalListener, err := net.Listen("tcp", internalServer.Addr)
+	if err != nil {
+		return fmt.Errorf("internal OCR listener unavailable")
+	}
+	defer internalListener.Close()
+	go func() {
+		if err := internalServer.Serve(internalListener); err != nil && err != http.ErrServerClosed {
+			logger.Error("internal OCR server stopped")
+			stop()
+		}
+	}()
+	defer internalServer.Close()
+	go analysisRepo.Dispatch(ctx, cache, logger)
 	handler := httpserver.New(c.FrontendOrigin, map[string]httpserver.Check{
 		"postgres": pool.Ping,
 		"redis":    func(ctx context.Context) error { return cache.Ping(ctx).Err() },
 		"minio":    storage.Readiness(c.MinioEndpoint),
 	}, logger, func(mux *http.ServeMux) {
+		analysisHandler.RegisterPublic(mux)
 		references.Register(mux, references.NewService(references.NewRepository(pool)), logger)
 		drafts.Register(mux, drafts.NewRepository(pool), c.DraftSessionTTL, c.FrontendOrigin, c.Environment == "production", logger)
 		documents.Register(mux, documents.NewService(documents.NewRepository(pool), objects, pdfcheck.QPDF{}, c.DocumentMaxBytes, logger), c.FrontendOrigin, c.Environment == "production", logger)

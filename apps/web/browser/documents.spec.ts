@@ -1,6 +1,7 @@
 import { test, expect } from '@playwright/test'
 import path from 'node:path'
 import { readFile } from 'node:fs/promises'
+const transcript = path.resolve('../../services/ocr/tests/fixtures/GL-DT_DWM-scan.pdf')
 const pdf = path.resolve('../../services/api/internal/modules/documents/testdata/valid.pdf')
 
 test('real document journey, keyboard, four widths and 200 percent zoom', async ({ page }) => {
@@ -52,9 +53,23 @@ test('real document journey, keyboard, four widths and 200 percent zoom', async 
   await page.getByLabel('Année d’obtention').fill(String(new Date().getFullYear() - 1))
   await checkpoint('academic')
   await page.getByRole('button', { name: 'Continuer', exact: true }).click()
+  const programSaved = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/v1/applications/drafts/current/program' &&
+      response.request().method() === 'PATCH',
+  )
   await page.getByRole('radio', { name: /Génie Logiciel/ }).check()
+  expect((await programSaved).status()).toBe(200)
+  const documentsButton = page.getByRole('button', { name: 'Ajouter les documents', exact: true })
+  await expect(documentsButton).toBeEnabled()
   await checkpoint('program')
-  await page.locator('form button[type=submit]').click()
+  const programSubmitted = page.waitForResponse(
+    (response) =>
+      new URL(response.url()).pathname === '/api/v1/applications/drafts/current/program' &&
+      response.request().method() === 'PATCH',
+  )
+  await documentsButton.click()
+  expect((await programSubmitted).status()).toBe(200)
   await expect(page.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible()
   await expect(
     page.getByRole('button', { name: 'Voir le récapitulatif', exact: true }),
@@ -69,16 +84,32 @@ test('real document journey, keyboard, four widths and 200 percent zoom', async 
   })
   await expect(page.getByText('Choisissez un fichier au format PDF.')).toBeVisible()
   await checkpoint('documents-error')
-  for (const type of ['REQUEST_LETTER', 'TRANSCRIPT', 'IDENTITY_DOCUMENT', 'PARENTAL_COMMITMENT']) {
-    await page.locator(`#file-${type}`).setInputFiles(pdf)
+  for (const type of ['TRANSCRIPT', 'REQUEST_LETTER', 'IDENTITY_DOCUMENT', 'PARENTAL_COMMITMENT']) {
+    await page.locator(`#file-${type}`).setInputFiles(type === 'TRANSCRIPT' ? transcript : pdf)
     await expect(
       page.locator('.document-list li').filter({ has: page.locator(`#file-${type}`) }),
     ).toContainText('Ajouté — version 1')
+    if (type === 'TRANSCRIPT') {
+      await expect(page.getByRole('button', { name: 'Analyser mon relevé' })).toHaveCount(0)
+      await expect(
+        page.getByText('Analyse de votre relevé en cours…', { exact: true }),
+      ).toBeVisible()
+      await page.reload()
+      await expect(page.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible()
+      await expect(
+        page.getByRole('heading', { name: 'Informations détectées', exact: true }),
+      ).toBeVisible({ timeout: 90000 })
+      await checkpoint('documents-analysis')
+      await page.getByRole('button', { name: 'Oui, les informations sont correctes' }).click()
+      await expect(
+        page.getByText('Informations du relevé confirmées', { exact: true }),
+      ).toBeVisible()
+    }
   }
   await page.locator('#file-TRANSCRIPT').setInputFiles({
     name: 'releve-' + 'notes-'.repeat(25) + '.pdf',
     mimeType: 'application/pdf',
-    buffer: await readFile(pdf),
+    buffer: await readFile(transcript),
   })
   await expect(
     page.locator('.document-list li').filter({ has: page.locator('#file-TRANSCRIPT') }),
@@ -105,8 +136,16 @@ test('real document journey, keyboard, four widths and 200 percent zoom', async 
   expect(pdfResponse.headers()['content-disposition']).toContain('inline')
   const preview = await page.context().request.get(contentPath)
   expect(preview.status()).toBe(200)
-  expect(await preview.body()).toEqual(await readFile(pdf))
+  expect(await preview.body()).toEqual(await readFile(transcript))
   await popup.close()
+  await expect(
+    page.getByRole('heading', { name: 'Informations détectées', exact: true }),
+  ).toBeVisible({ timeout: 90000 })
+  await expect(page.locator('.analysis-table tbody tr')).toHaveCount(3)
+  await expect(page.locator('.analysis-table')).toContainText('15.50')
+  await expect(page.locator('.analysis-table input')).toHaveCount(0)
+  await page.getByRole('button', { name: 'Oui, les informations sont correctes' }).click()
+  await expect(page.getByText('Informations du relevé confirmées', { exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'Voir le récapitulatif', exact: true }).click()
   await expect(page.getByRole('heading', { name: 'Vérifiez votre brouillon' })).toBeVisible()
   await page.reload()
@@ -117,4 +156,91 @@ test('real document journey, keyboard, four widths and 200 percent zoom', async 
     document.documentElement.style.zoom = '2'
   })
   await checkpoint('review-zoom200')
+})
+
+test('rejected extraction requires transcript replacement and a fresh analysis', async ({
+  page,
+}) => {
+  const origin = 'http://localhost:5173'
+  const base = '/api/v1/applications/drafts'
+  async function jsonRequest(route: string, method: 'post' | 'patch', data: unknown) {
+    const response = await page
+      .context()
+      .request[method](route, { headers: { Origin: origin }, data })
+    expect(response.ok()).toBe(true)
+    return response.json()
+  }
+  let draft = await jsonRequest(base, 'post', { campaign: 'DEV_LOCAL' })
+  draft = await jsonRequest(`${base}/current/profile`, 'patch', {
+    version: draft.version,
+    profile: {
+      lastName: 'Validation',
+      firstNames: 'Rejet synthétique',
+      email: 'reject@example.invalid',
+      phone: '+33123456789',
+    },
+  })
+  draft = await jsonRequest(`${base}/current/academic-background`, 'patch', {
+    version: draft.version,
+    qualification: 'DT_DWM',
+    graduationYear: new Date().getFullYear() - 1,
+  })
+  draft = await jsonRequest(`${base}/current/program`, 'patch', {
+    version: draft.version,
+    program: 'GL',
+  })
+  let version: number = draft.version
+  for (const type of ['REQUEST_LETTER', 'TRANSCRIPT', 'IDENTITY_DOCUMENT', 'PARENTAL_COMMITMENT']) {
+    const response = await page.context().request.post(`${base}/current/documents/${type}`, {
+      headers: { Origin: origin, 'X-Application-Version': String(version) },
+      multipart: {
+        file: {
+          name: 'synthetic.pdf',
+          mimeType: 'application/pdf',
+          buffer: await readFile(type === 'TRANSCRIPT' ? transcript : pdf),
+        },
+      },
+    })
+    expect(response.status()).toBe(201)
+    version = (await response.json()).applicationVersion
+  }
+  await page.goto('/candidature')
+  await expect(
+    page.getByRole('heading', { name: 'Informations détectées', exact: true }),
+  ).toBeVisible({ timeout: 90000 })
+  const before = await (
+    await page.context().request.get(`${base}/current/transcript-analysis`)
+  ).json()
+  await page.getByRole('button', { name: 'Non, les informations sont incorrectes' }).click()
+  await page.getByRole('button', { name: 'Rejeter et remplacer mon relevé' }).click()
+  await expect(page.getByRole('heading', { name: 'Documents', exact: true })).toBeVisible()
+  const rejected = await (
+    await page.context().request.get(`${base}/current/transcript-analysis`)
+  ).json()
+  expect(rejected.candidateConfirmation).toBe('REJECTED')
+  expect(rejected.verificationReady).toBe(false)
+  const repeat = await page.context().request.post(`${base}/current/transcript-analysis/confirm`, {
+    headers: { Origin: origin },
+    data: { analysisId: before.id, version },
+  })
+  expect(repeat.status()).toBe(409)
+  await page.locator('#file-TRANSCRIPT').setInputFiles(transcript)
+  await expect(
+    page.locator('.document-list li').filter({ has: page.locator('#file-TRANSCRIPT') }),
+  ).toContainText('version 2')
+  await expect(page.getByRole('button', { name: 'Analyser mon relevé' })).toHaveCount(0)
+  await expect(
+    page.getByRole('heading', { name: 'Informations détectées', exact: true }),
+  ).toBeVisible({ timeout: 90000 })
+  const after = await (
+    await page.context().request.get(`${base}/current/transcript-analysis`)
+  ).json()
+  expect(after.id).not.toBe(before.id)
+  expect(after.documentVersionId).not.toBe(before.documentVersionId)
+  expect(after.candidateConfirmation).toBe('PENDING')
+  expect(after.verificationReady).toBe(false)
+  await page.getByRole('button', { name: 'Oui, les informations sont correctes' }).click()
+  await expect(page.getByText('Informations du relevé confirmées', { exact: true })).toBeVisible()
+  await page.getByRole('button', { name: 'Voir le récapitulatif', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Vérifiez votre brouillon' })).toBeVisible()
 })

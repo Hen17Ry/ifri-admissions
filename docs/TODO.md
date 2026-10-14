@@ -90,3 +90,48 @@ Phase 2 terminée : migration corrective 00002, seed idempotent, intégration Po
 - [ ] Avant production : scanner/quarantaine, conservation et réconciliation des objets orphelins.
 
 Aucun OCR ni phase suivante commencé ; accord utilisateur requis pour la suite.
+
+## Phase 5 — réalisée et validée localement / sur l’hôte
+
+- [x] Ajouter migration OCR/contextes, callback interne, API de lecture/confirmation et contrôles numériques exacts.
+- [x] Ajouter pipeline spatial hybride, moteur pluggable, Redis consumer/heartbeat et limites.
+- [x] Ajouter étape Analyse en lecture seule et tests frontend/Go unitaires.
+- [x] Générer uv.lock et installer réellement les nouveaux paquets Python sur l’hôte.
+- [x] Exécuter pytest et extraction native sur fixtures unitaires (26 tests Python).
+- [x] Exécuter/corriger Tesseract réel et le benchmark des 20 fixtures.
+- [x] Compléter scénarios de panne/replay Redis, résultats stale, refus/remplacement et tests HTTP.
+- [x] Exécuter migration/rollback/base vide PostgreSQL et listener interne réel.
+- [x] Mesurer benchmark synthétique et consigner OCR_BENCHMARK.
+- [x] Exécuter Playwright confirmation et refus/remplacement, contrôles visuels six étapes.
+- [x] Finaliser PHASE5_VALIDATION avec preuves hôte.
+
+Aucune moyenne, soumission, numéro officiel, administration ou classement autorisé dans cette phase.
+
+Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit accessibilité approfondi et CI dédiée restent à traiter.
+
+
+## Phase 5.1 — corrective en validation
+
+- [x] Supprimer bouton OCR et étape séparée ; intégrer analyse et confirmation dans Documents.
+- [x] Conserver déclenchement transactionnel existant, gating backend et historique/version exacts.
+- [x] Reprendre polling à la restauration et nouvelle version ; suspendre pendant mutation locale.
+- [x] Ajouter profils, sélection écrit/oral, colonnes, contrôle secondaire et désaccord multipass.
+- [x] Ajouter variantes scan/deskew/géométrie et limites, dépendances verrouillées sur l’hôte.
+- [x] Ignorer corpus privé dans Git et contextes Docker ; préparer commande locale read-only.
+- [ ] Exécuter nouveau benchmark Tesseract réel synthétique scan/photo et comparer variantes.
+- [ ] Exécuter scan réel privé si disponible ; ne déclarer aucune précision de production.
+- [ ] Rebuild Docker et régression Redis/S3/HTTP complète.
+- [ ] Exécuter Playwright analyse automatique/refresh/rejet/remplacement aux quatre largeurs.
+- [ ] Finaliser PHASE5_1_VALIDATION à partir des sorties réelles.
+
+Aucune phase 6 autorisée.
+
+### Stratégie BAC général par cellules — correction demandée
+
+La stratégie active pour les scans BAC général remplace les essais OCR globaux par : correction géométrique prudente (contour de page quadrilatéral crédible, puis deskew), binarisation du canal V HSV (= max RGB), ancres du premier groupe écrit et Total écrit, reconstruction morphologique d'une grille de cinq colonnes fixes, OCR PSM7 de chaque cellule agrandie ×3. Whitelist numérique `0123456789,.`. Les en-têtes OCR ne déterminent plus les colonnes. Les tables sans séparateurs horizontaux internes utilisent les bandes de texte numérique pour reconstruire les séparations ; une géométrie ou des cellules incohérentes imposent NEEDS_REVIEW. Les profils génériques conservent leur chemin existant.
+
+La liste fermée documentaire des matières BAC sert au matching ; elle ne remplace pas le snapshot des matières d'admission. Notes et coefficients viennent toujours de leurs propres cellules. Points = note × coefficient et Sur = 20 × coefficient sont vérifiés exactement sur chaque ligne, puis les sommes coefficient/points/Sur sont comparées au Total écrit. La note récapitulative imprimée peut être arrondie ou tronquée au centième : contrôle secondaire avec tolérance `0,01 × coefficient total` ; aucun résultat de moyenne d'admission n'est créé.
+
+Sur demande explicite de l'utilisateur, ces preuves arithmétiques remplacent le seuil Tesseract **uniquement pour ce profil**. Les confiances réelles restent présentes. Go revérifie indépendamment les produits, sommes, ligne sélectionnée et bornes de valeurs avec `big.Rat` avant acceptation d'une extraction à faible confiance. Les lignes incohérentes portent NEEDS_REVIEW dans le diagnostic ; le résultat conserve l'état terminal existant LOW_CONFIDENCE avec failureCode NEEDS_REVIEW, afin de ne pas inventer un circuit administratif de phase 6.
+
+Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs parsées, contrôles par ligne, contrôles des totaux et série. Aucun en-tête d'identité, texte de page complet, hash ou PDF n'est exporté. Calibration via `ocr_private_run.py` ; l'ancien argument `--evaluate` utilise désormais la même stratégie, sans matrice de variantes. Les anciens benchmarks sont historiques et ne valident pas ce nouveau chemin. Test réel et régression Docker restent à mesurer. RapidOCR sera évalué sur les mêmes cellules seulement si la lecture numérique reste insuffisante, après vérification de compatibilité Python 3.14.

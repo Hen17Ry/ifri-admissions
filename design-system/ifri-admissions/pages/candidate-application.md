@@ -27,3 +27,17 @@ Master inchangé. Recherches UI UX Pro Max exécutées : secure university admis
 - Progression cinq étapes ; document complet relu au serveur avant Vérification, aucune soumission. Transitions discrètes existantes et reduced-motion conservés.
 
 Inspiration de composition : [guide uploads 21st.dev](https://21st.dev/blog/react-file-upload-components), [file upload card](https://docs.21st.dev/@sean0205/components/file-upload/card-upload). Réimplémentation Vue avec contrôles natifs ; aucun code React, package React ou asset repris.
+
+## Adaptations Analyse — phase 5
+
+Recherches UI UX Pro Max effectivement exécutées : document processing status/asynchronous accessible status feedback, extracted data confirmation/read only verification table, university admissions verification. Recommandations retenues : une région status atomique et contextuelle, états nommés sans faux pourcentage, table contenue sur mobile, confirmation explicite du rejet. Résultats universitaires institutionnels cohérents avec master ; compositions landing et palettes alternatives non utilisées.
+
+Six étapes, données extraites en table sémantique avec headers, aucune zone éditable. Confirmation/rejet sans choix précoché ; rejet demande une seconde action explicite et explique le nouveau PDF obligatoire. États d’échec sûrs en français. Polling borné, arrêt terminal, réessai manuel. Tokens/couleurs/typographie du MASTER inchangés. Contrôle visuel six étapes restant à exécuter.
+
+## Adaptations actives — phase 5.1
+
+Cinq étapes : informations, parcours, filière, Documents, Vérification. La section Analyse de phase 5 est désormais intégrée dans la carte TRANSCRIPT, après le fichier et ses actions. Aucun bouton de déclenchement OCR. Une bordure du token divider regroupe le résultat avec le relevé, sans nouvelle carte géante ni nouveau langage visuel.
+
+Recherches UI UX Pro Max exécutées : inline document analysis / async status inside file card, inline extracted data confirmation / document verification ; recherche ciblée async status aria live → Contextual Live Badge Updates, retenue : annonce contextuelle polie, atomique, sans déplacement de focus. Vue async polling watch cleanup → watchers sur sources explicites et nettoyage à l’unmount, retenus. Recherche progressive disclosure upload n’a pas de correspondance vérifiée spécifique ; adaptation produit : le résultat apparaît seulement après dépôt, dans sa destination documentaire. Confirmation Messages et erreurs proches de leur contexte retenus. Master inchangé.
+
+Polling automatique au montage de la version courante, renouvelé après upload/remplacement, suspendu pendant une mutation de documents et en arrière-plan. Arrêt terminal ; lecture réseau répétable, aucun retry OCR manuel. Résultats en lecture seule, actions oui/non sans choix précoché. Rejet reste dans Documents et exige nouvelle version. Sur petit écran : matière flexible, valeurs numériques non coupées ; tableau sémantique, sans inputs. Aucun focus forcé à la fin du polling.

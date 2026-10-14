@@ -1,0 +1,150 @@
+{
+  "runtime": {
+    "python": "3.14.8",
+    "pymupdf": "1.28.2",
+    "rapidfuzz": "3.14.6",
+    "tesseract": "tesseract 5.3.0"
+  },
+  "measurements": [
+    {
+      "fixture": "GL-BAC_C-text.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.016,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-BAC_C-scan.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 4.306,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-BAC_E-text.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.006,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-BAC_E-scan.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 3.001,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-DT_DWM-text.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.005,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-DT_DWM-scan.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 2.93,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-DT_DWM-missing.pdf",
+      "status": "FAILED",
+      "failureCode": "SUBJECT_NOT_FOUND",
+      "seconds": 0.009,
+      "exactValues": false
+    },
+    {
+      "fixture": "GL-DT_DWM-coefficient.pdf",
+      "status": "FAILED",
+      "failureCode": "COEFFICIENT_NOT_FOUND",
+      "seconds": 0.005,
+      "exactValues": false
+    },
+    {
+      "fixture": "GL-DT_DWM-ambiguous.pdf",
+      "status": "LOW_CONFIDENCE",
+      "failureCode": "AMBIGUOUS_ROW",
+      "seconds": 0.005,
+      "exactValues": false
+    },
+    {
+      "fixture": "GL-DT_DWM-no-accents.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.005,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-DT_DWM-degraded.pdf",
+      "status": "LOW_CONFIDENCE",
+      "failureCode": "LOW_CONFIDENCE",
+      "seconds": 4.51,
+      "exactValues": false
+    },
+    {
+      "fixture": "GL-DT_DWM-skew.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 2.876,
+      "exactValues": true
+    },
+    {
+      "fixture": "GL-DT_DWM-wrong-subjects.pdf",
+      "status": "LOW_CONFIDENCE",
+      "failureCode": "LOW_CONFIDENCE",
+      "seconds": 4.342,
+      "exactValues": false
+    },
+    {
+      "fixture": "GL-DT_DWM-alternate-layout.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.005,
+      "exactValues": true
+    },
+    {
+      "fixture": "SI-DT_IMI-text.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.007,
+      "exactValues": true
+    },
+    {
+      "fixture": "SI-DT_IMI-scan.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 3.088,
+      "exactValues": true
+    },
+    {
+      "fixture": "IM-DT_PM-text.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.006,
+      "exactValues": true
+    },
+    {
+      "fixture": "IM-DT_PM-scan.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 2.662,
+      "exactValues": true
+    },
+    {
+      "fixture": "SEIOT-DT_EAP-text.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 0.005,
+      "exactValues": true
+    },
+    {
+      "fixture": "SEIOT-DT_EAP-scan.pdf",
+      "status": "SUCCEEDED",
+      "failureCode": "",
+      "seconds": 3.047,
+      "exactValues": true
+    }
+  ]
+}

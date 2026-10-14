@@ -42,8 +42,21 @@ Inspecter l’existant et les instructions locales ; limiter les changements à 
 Migrations Goose explicites, seed canonique séparé de DEV_LOCAL non officiel, seed jamais en production. Consulter `docs/ADMISSION_RULES.md` pour matrice et contrat HTTP. Qualification canonique OriginQualification ; quotas nullable par CampaignProgram. Grilles versionnées par offre, publiées immuables ; règles inconnues non autorisées sans inventer de refus officiel. Ne pas ajouter de coefficients. Tests PostgreSQL isolés via profil Compose test ; aucune suppression de volume local pour tester.
 
 ## Brouillons de phase 3
-Lire CANDIDATE_FLOW et PHASE3_VALIDATION. Autorisation par cookie opaque hashé, jamais UUID fourni ; Origin obligatoire sur mutations JSON et multipart ; secrets/PII absents des logs. Application DRAFT seule éditable, profil incomplet permis en brouillon ; aucune soumission ni numéro final. Qualification/filière contrôlées avec référentiels dans une transaction ; invalidation du choix incompatible. Autosave sérialisé et version optimiste. UI UX master inchangé, override candidate-application pour les cinq étapes.
+Lire CANDIDATE_FLOW et PHASE3_VALIDATION. Autorisation par cookie opaque hashé, jamais UUID fourni ; Origin obligatoire sur mutations JSON et multipart ; secrets/PII absents des logs. Application DRAFT seule éditable, profil incomplet permis en brouillon ; aucune soumission ni numéro final. Qualification/filière contrôlées avec référentiels dans une transaction ; invalidation du choix incompatible. Autosave sérialisé et version optimiste. UI UX master inchangé, override candidate-application pour les cinq étapes actives de phase 5.1.
 
 ## Documents de phase 4
 
 Lire DOCUMENT_WORKFLOW et PHASE4_VALIDATION. Codes et libellés côté API ; session → candidature → document courant, aucun accès UUID public. SDK S3 confiné au stockage, qpdf système sans OCR, secrets du compte S3 limité hors dépôt. Anciennes versions conservées ; analyse future liée à document_version_id. Aucun scanner antivirus implémenté dans cette phase : production exige décision de quarantaine/scanner. Ne pas déclarer S3/DB/navigateur validés sans sorties réelles.
+
+## Phase 5 — analyse en validation
+
+Lire OCR_PIPELINE et PHASE5_VALIDATION. Matières exclusivement snapshot de grille publiée ; note et coefficient exclusivement preuves du PDF, jamais defaults. PyMuPDF/Tesseract derrière port moteur, callbacks Go internes 8081, tentative + contexte + document_version contrôlés. Confirmation distincte, lecture seule, rejet impose nouvelle version. Aucun calcul de moyenne, soumission, numéro final ou admin dans cette phase. Mesures synthétiques ≠ validation de précision sur corpus réel.
+
+
+## Phase 5.1 — corrective autorisée
+
+Analyse automatique à l’upload/remplacement, intégrée à Documents ; aucun bouton OCR ni étape séparée. Garder triggers et historique validés. Lire PHASE5_1_VALIDATION. Profils de layout séparés des règles d’admission ; BAC général premier groupe écrit, hypothèse documentaire à confirmer officiellement. Notes/coefs jamais dérivés de Points/Sur. Private-fixtures/Relever.pdf et oracle local ignorés Git et contextes Docker ; pas de PII du corpus réel dans images/logs/tests publics. Aucune phase 6 autorisée.
+
+Instruction explicite courante : BAC général scanné lu par cellules, acceptation arithmétique contrôlée et indépendante en Go, confiance Tesseract conservée en diagnostic. Le seuil Tesseract n'est plus décisif pour ce profil lorsque les preuves complètes passent. NEEDS_REVIEW est un motif de revue documentaire, pas une ouverture du module d'administration.
+
+Correction explicite demandée pour le profil BAC : note dérivée de Points/Coeff permise uniquement lorsque les sommes des coefficients, Points et Sur lus sur toutes les lignes correspondent exactement au Total. Conserver lecture directe, divergence, origine POINTS_TOTALS et coordonnées des cellules de preuve ; Go revérifie produits et sommes. Coeff reste exclusivement sa cellule, jamais dérivé depuis Sur.

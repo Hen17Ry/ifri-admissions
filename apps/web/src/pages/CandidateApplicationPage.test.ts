@@ -4,6 +4,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import CandidateApplicationPage from './CandidateApplicationPage.vue'
 import { draftApi, type Draft } from '@/features/application/api'
 import { ApiError } from '@/lib/api'
+import { analysisApi } from '@/features/analysis/api'
+vi.mock('@/features/analysis/api', () => ({ analysisApi: { current: vi.fn(), decide: vi.fn() } }))
 import { documentsApi } from '@/features/documents/api'
 vi.mock('@/features/documents/api', () => ({
   documentsApi: {
@@ -37,6 +39,14 @@ let stored: Draft
 let wrapper: VueWrapper | undefined
 beforeEach(() => {
   vi.resetAllMocks()
+  vi.mocked(analysisApi.current).mockResolvedValue({
+    id: 'analysis',
+    documentVersionId: 'v1',
+    status: 'SUCCEEDED',
+    candidateConfirmation: 'CONFIRMED',
+    subjects: [],
+    verificationReady: true,
+  })
   vi.mocked(documentsApi.list).mockImplementation(async () => ({
     documents: [],
     complete: false,
@@ -118,11 +128,13 @@ async function academic(w: VueWrapper) {
   await flushPromises()
 }
 describe('Candidate journey', () => {
-  it('shows four steps and loads qualifications', async () => {
+  it('shows five steps and loads qualifications', async () => {
     const w = await page()
     expect(w.get('nav[aria-label="Étapes du brouillon"]').findAll('li')).toHaveLength(5)
     expect(w.text()).toContain('Vos informations')
     expect(w.text()).not.toContain('Soumettre')
+    expect(w.text()).not.toContain('Analyser mon relevé')
+    expect(w.get('nav').text()).not.toContain('Analyse du relevé')
     expect(draftApi.qualifications).toHaveBeenCalledOnce()
   })
   it('validates profile and focuses first error', async () => {
@@ -153,6 +165,22 @@ describe('Candidate journey', () => {
     expect(stored.program?.code).toBe('GL')
   })
 
+  it('advances to documents after program autosave has completed', async () => {
+    const w = await page()
+    await identity(w)
+    await academic(w)
+    vi.useFakeTimers()
+    await w.get('input[type="radio"]').setValue()
+    await vi.advanceTimersByTimeAsync(800)
+    await flushPromises()
+    expect(w.get('#step-title').text()).toBe('Filière souhaitée')
+    expect(w.text()).toContain('Enregistré')
+    await w.get('form').trigger('submit')
+    await flushPromises()
+    expect(w.get('#step-title').text()).toBe('Documents')
+    expect(w.text()).toContain('Quatre documents sont nécessaires.')
+  })
+
   it('requires server completion before opening verification', async () => {
     stored.profile = {
       lastName: 'Validation',
@@ -164,19 +192,55 @@ describe('Candidate journey', () => {
     stored.graduationYear = 2025
     stored.program = program
     vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
+    vi.mocked(documentsApi.list).mockImplementation(async () => ({
+      documents: [
+        {
+          type: 'TRANSCRIPT',
+          label: 'Relevé',
+          required: true,
+          uploaded: true,
+          version: 1,
+          filename: 'synthetic.pdf',
+          sizeBytes: 100,
+        },
+      ],
+      complete: false,
+      maxBytes: 10485760,
+      applicationVersion: stored.version,
+    }))
     const w = await page(false)
     const next = () => w.findAll('button').find((b) => b.text() === 'Voir le récapitulatif')!
     expect(next().attributes('disabled')).toBeDefined()
     const component = w.findComponent({ name: 'DocumentsStep' })
     stored.version++
     vi.mocked(documentsApi.list).mockImplementation(async () => ({
-      documents: [],
+      documents: [
+        {
+          type: 'TRANSCRIPT',
+          label: 'Relevé',
+          required: true,
+          uploaded: true,
+          version: 1,
+          filename: 'synthetic.pdf',
+          sizeBytes: 100,
+        },
+      ],
       complete: true,
       maxBytes: 10485760,
       applicationVersion: stored.version,
     }))
     component.vm.$emit('saved', {
-      documents: [],
+      documents: [
+        {
+          type: 'TRANSCRIPT',
+          label: 'Relevé',
+          required: true,
+          uploaded: true,
+          version: 1,
+          filename: 'synthetic.pdf',
+          sizeBytes: 100,
+        },
+      ],
       complete: true,
       maxBytes: 10485760,
       applicationVersion: stored.version,
@@ -184,8 +248,58 @@ describe('Candidate journey', () => {
     await flushPromises()
     await next().trigger('click')
     await flushPromises()
+    expect(w.text()).toContain('Informations du relevé confirmées')
     expect(w.text()).toContain('Votre candidature reste un brouillon.')
   })
+  it('automatically displays pending analysis inside transcript card after restoration', async () => {
+    stored.profile = {
+      lastName: 'Validation',
+      firstNames: 'Test',
+      email: 'test@example.invalid',
+      phone: '+33123456789',
+    }
+    stored.qualification = qualification
+    stored.graduationYear = 2025
+    stored.program = program
+    vi.mocked(draftApi.current).mockResolvedValue(structuredClone(stored))
+    vi.mocked(documentsApi.list).mockResolvedValue({
+      documents: [
+        {
+          type: 'TRANSCRIPT',
+          label: 'Relevé',
+          required: true,
+          uploaded: true,
+          version: 1,
+          filename: 'synthetic.pdf',
+          sizeBytes: 100,
+        },
+      ],
+      complete: false,
+      maxBytes: 10485760,
+      applicationVersion: stored.version,
+    })
+    vi.mocked(analysisApi.current).mockResolvedValue({
+      id: 'analysis',
+      documentVersionId: 'v1',
+      status: 'PROCESSING',
+      candidateConfirmation: 'PENDING',
+      subjects: [],
+      verificationReady: false,
+    })
+    const w = await page(false)
+    const card = w.get('.document-row')
+    expect(card.text()).toContain('Analyse de votre relevé en cours')
+    expect(w.text()).not.toContain('Analyser mon relevé')
+    expect(w.get('#step-title').text()).toBe('Documents')
+    expect(draftApi.create).not.toHaveBeenCalled()
+    expect(
+      w
+        .findAll('button')
+        .find((b) => b.text() === 'Voir le récapitulatif')!
+        .attributes('disabled'),
+    ).toBeDefined()
+  })
+
   it('explains no eligible programs', async () => {
     vi.mocked(draftApi.programs).mockResolvedValue([])
     const w = await page()

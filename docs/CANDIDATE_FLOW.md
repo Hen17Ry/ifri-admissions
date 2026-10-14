@@ -1,8 +1,8 @@
-# Parcours candidat — phases 3 et 4
+# Parcours candidat — phases 3 à 5
 
 ## Périmètre
 
-Route `/candidature`, layout candidat distinct, cinq étapes : informations personnelles → parcours académique → filière éligible → documents → vérification du brouillon. Le récapitulatif ne soumet rien et n’attribue aucun numéro officiel. Aucun OCR, moyenne, classement, notification ou authentification de compte.
+Route `/candidature`, layout candidat distinct, six étapes : informations personnelles → parcours académique → filière éligible → documents → analyse du relevé → vérification du brouillon. Le récapitulatif ne soumet rien et n’attribue aucun numéro officiel. Aucun OCR, moyenne, classement, notification ou authentification de compte.
 
 ## Persistance et navigation
 
@@ -49,3 +49,17 @@ Quatre largeurs à vérifier réellement sur l’hôte : 375/768/1024/1440 ; zoo
 ## Étape Documents (phase 4)
 
 Quatre destinations explicites, labels et limite fournis par API. Sélecteur natif au clavier, envoi réel sans pourcentage simulé, prévisualisation authentifiée en nouvel onglet et remplacement conservant l’ancienne version jusqu’à succès. Chargement/restauration et erreurs de session ne créent pas de brouillon silencieux. Continuer relit complete serveur ; récapitulatif inclut les quatre pièces sans soumission. Contrat complet : DOCUMENT_WORKFLOW.
+
+## Phase 5 — analyse en cours d’intégration
+
+Six étapes : informations → parcours → filière → documents → analyse → vérification. GET …/current/transcript-analysis expose seulement l’analyse fraîche autorisée et verificationReady ; POST …/confirm et …/reject exigent Origin, JSON, session, analysisId courant et version du brouillon. Aucun PATCH de note/coefficient. REJECTED impose un nouveau relevé. Échec/LOW_CONFIDENCE : consignes de lisibilité et remplacement, sans stacktrace ou score brut.
+
+Confirmation/rejet indépendants du statut OCR. Modification de filière/qualification ou remplacement du relevé invalide l’analyse en DB ; retour vers une ancienne combinaison ne réactive jamais une confirmation ancienne. Aucune moyenne ni soumission finale dans cette phase.
+
+Après rejet, retour Documents avec le relevé mis en évidence et focus du sélecteur. Le bouton Analyse reste bloqué jusqu’au remplacement du relevé, même si les autres documents sont complets. Changement puis retour de contexte ne contourne pas le rejet : le serveur impose une nouvelle version.
+
+## Parcours actif — phase 5.1 corrective
+
+Cinq étapes : Vos informations → Votre parcours → Filière souhaitée → Documents → Vérification. L’étape OCR séparée et le bouton Analyser mon relevé sont supprimés. Analyse et confirmation apparaissent sous la carte du relevé automatiquement dès son upload/remplacement.
+
+Le composant de lecture suit la version TRANSCRIPT et le contexte académique ; polling au montage pour QUEUED/PROCESSING, arrêt terminal et nettoyage à l’unmount. Refresh restaure sans créer d’analyse. Pendant un autre upload, polling/confirmation sont suspendus pour éviter un conflit local artificiel de version ; à son acquittement, la lecture serveur réactualise la complétude. Données extraites jamais éditables. Confirmation puis quatre documents complets autorisent Vérification via contrôle serveur. Rejet reste dans Documents ; nouvelle version obligatoire. Annonces async polies sans déplacement de focus.

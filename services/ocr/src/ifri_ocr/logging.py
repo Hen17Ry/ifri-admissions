@@ -17,6 +17,18 @@ class JSONFormatter(logging.Formatter):
                 "service": "ocr-worker",
                 "environment": self.environment,
                 "message": record.getMessage(),
+                **{
+                    key: getattr(record, key)
+                    for key in (
+                        "analysis_id",
+                        "document_version_id",
+                        "engine",
+                        "duration_seconds",
+                        "status",
+                        "failure_code",
+                    )
+                    if hasattr(record, key)
+                },
             }
         )
 

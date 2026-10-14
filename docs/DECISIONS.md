@@ -142,3 +142,68 @@ Source de la matrice : instruction utilisateur phase 2 du 12 octobre 2026 ; voir
 | 053 | Retenue | Playwright 1.64.0 dev-only pour parcours réel et captures | Tests navigateur séparés de Vitest ; exécution hôte requise, aucune donnée personnelle réelle |
 
 Sources : [SDK S3 MinIO](https://github.com/minio/minio-go/releases), [qpdf CLI](https://qpdf.readthedocs.io/en/stable/cli.html). Versions npm/Go verrouillées par les outils officiels. La version système qpdf réellement installée en conteneur sera relevée lors de la validation hôte ; paquet Alpine dans l’image existante, sans moteur OCR.
+
+## Phase 5 — décisions en cours de validation
+
+| ADR | Décision | Conséquence |
+|---|---|---|
+| 054 | Snapshot contexte et document_version_id exact ; invalidation/enqueue transactionnels par triggers | Anciennes analyses OBSOLETE, versions historiques, aucune réutilisation silencieuse |
+| 055 | Redis Streams avec analyse durable servant d’outbox et groupe consommateur | Au moins une fois ; claim, callbacks par tentative, digest et ACK durable ; reprise bornée |
+| 056 | PyMuPDF 1.28.2 + RapidFuzz 3.14.6, Python 3.14 conservé ; Tesseract fra+eng | Versions compatibles publiées ; pas de runtime ML lourd ; installation/mesures réelles encore attendues |
+| 057 | PDF worker via API interne utilisant le port S3 existant | Aucun credential S3 ou accès PostgreSQL côté Python ; listener 8081 privé, secret obligatoire |
+| 058 | Décimales contractuelles sous forme de chaînes, Decimal/big.Rat/NUMERIC | Aucune note ou coefficient en float ; confiances/bbox séparées |
+| 059 | Score heuristique minimum et gardes spatiales, seuil local centralisé | Pas de probabilité scientifique ni précision sur corpus réel revendiquée |
+
+[PyMuPDF](https://pypi.org/project/pymupdf/) publie des wheels compatibles et utilise une licence AGPL ou commerciale ; conditions de distribution/déploiement à traiter avant production selon le modèle de licence du projet. [RapidFuzz](https://pypi.org/project/RapidFuzz/) 3.14.6 supporte Python 3.14, licence MIT. Ces décisions locales ne constituent pas une validation de production.
+
+Précisions ADR 055 : ledger ocr_analysis_attempts pour idempotence et audit des reprises ; contractVersion=1 explicite. Le profil ocr-tests est un conteneur de validation opt-in, pas un service produit supplémentaire ; il réutilise l’image worker et écrit uniquement des fixtures synthétiques. Refus d’une version de relevé valable globalement pour cette version, sans contournement par changement de contexte.
+
+Précision construction Phase 5 : après timeout TLS du registre GHCR sur l’hôte, uv 0.12.3 (version déjà utilisée pour le lock local) est installé depuis PyPI dans l’image Python, puis les dépendances restent installées avec `uv sync --locked`. Le build de validation utilise `additional_contexts: service:ocr-worker` et non une image locale potentiellement ancienne. Sources : https://pypi.org/project/uv/0.12.3/ et https://docs.docker.com/reference/compose-file/build/#additional_contexts.
+
+## Phase 5.1 — corrections (validation réelle en cours)
+
+| ADR | Décision | Conséquence |
+|---|---|---|
+| 060 | Analyse automatique affichée sous la carte relevé, cinq étapes | Déclenchement backend existant conservé, aucune route de lancement manuel ; refresh = lecture seulement |
+| 061 | TranscriptLayoutProfile BAC général : premier groupe écrit, oral exclu | Hypothèse de source pour ce format à confirmer avec règles officielles IFRI ; aucun coefficient métier |
+| 062 | OpenCV headless 4.13.0.92 + NumPy 2.4.6, Python 3.14 conservé | Lock officiel hôte ; CLAHE/adaptive/canal, deskew crédible et refus perspective, géométrie inverse testée |
+| 063 | 300 DPI initial, second prétraitement, 350 DPI optionnel ; maximum trois passes | Choix provisoire à mesurer, PSM 11 ancres / 6 section ; contradictions refusées, pas de guess |
+| 064 | Corpus réel privé via bind mount read-only et oracle ignoré | Exclusion Git et contextes Docker ; sortie limitée aux matières demandées, valeurs et diagnostic anonyme |
+
+Sources primaires consultées : [Tesseract qualité/PSM](https://tesseract-ocr.github.io/tessdoc/ImproveQuality.html), [OpenCV CLAHE](https://docs.opencv.org/4.13.0/d5/daf/tutorial_py_histogram_equalization.html), [OpenCV headless](https://pypi.org/project/opencv-python-headless/4.13.0.92/), [NumPy](https://pypi.org/project/numpy/2.4.6/). Les variantes et seuils sont des heuristiques à calibrer, aucune précision de production revendiquée.
+
+### Stratégie BAC général par cellules — correction demandée
+
+La stratégie active pour les scans BAC général remplace les essais OCR globaux par : correction géométrique prudente (contour de page quadrilatéral crédible, puis deskew), binarisation du canal V HSV (= max RGB), ancres du premier groupe écrit et Total écrit, reconstruction morphologique d'une grille de cinq colonnes fixes, OCR PSM7 de chaque cellule agrandie ×3. Whitelist numérique `0123456789,.`. Les en-têtes OCR ne déterminent plus les colonnes. Les tables sans séparateurs horizontaux internes utilisent les bandes de texte numérique pour reconstruire les séparations ; une géométrie ou des cellules incohérentes imposent NEEDS_REVIEW. Les profils génériques conservent leur chemin existant.
+
+La liste fermée documentaire des matières BAC sert au matching ; elle ne remplace pas le snapshot des matières d'admission. Notes et coefficients viennent toujours de leurs propres cellules. Points = note × coefficient et Sur = 20 × coefficient sont vérifiés exactement sur chaque ligne, puis les sommes coefficient/points/Sur sont comparées au Total écrit. La note récapitulative imprimée peut être arrondie ou tronquée au centième : contrôle secondaire avec tolérance `0,01 × coefficient total` ; aucun résultat de moyenne d'admission n'est créé.
+
+Sur demande explicite de l'utilisateur, ces preuves arithmétiques remplacent le seuil Tesseract **uniquement pour ce profil**. Les confiances réelles restent présentes. Go revérifie indépendamment les produits, sommes, ligne sélectionnée et bornes de valeurs avec `big.Rat` avant acceptation d'une extraction à faible confiance. Les lignes incohérentes portent NEEDS_REVIEW dans le diagnostic ; le résultat conserve l'état terminal existant LOW_CONFIDENCE avec failureCode NEEDS_REVIEW, afin de ne pas inventer un circuit administratif de phase 6.
+
+Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs parsées, contrôles par ligne, contrôles des totaux et série. Aucun en-tête d'identité, texte de page complet, hash ou PDF n'est exporté. Calibration via `ocr_private_run.py` ; l'ancien argument `--evaluate` utilise désormais la même stratégie, sans matrice de variantes. Les anciens benchmarks sont historiques et ne valident pas ce nouveau chemin. Test réel et régression Docker restent à mesurer. RapidOCR sera évalué sur les mêmes cellules seulement si la lecture numérique reste insuffisante, après vérification de compatibilité Python 3.14.
+
+### Bordures, colonnes et budget de calibration
+
+La sélection des colonnes est ancrée aux extrémités du premier trait horizontal long du tableau. Six axes sont recherchés à l'intérieur de cette bordure, près des ratios du profil stable : 0 / 0,535 / 0,645 / 0,755 / 0,89 / 1. Un axe absent ou décalé déclenche le fallback de ratios, jamais une translation silencieuse des cinq colonnes. Matière est nettement plus large ; Points est légèrement plus large que Note/Coeff/Sur. Un tableau sans bordure crédible renvoie COLUMN_SEGMENTATION_FAILED.
+
+Otsu est calculé sur le canal V de chaque crop, avec marge intérieure de 8 pixels sur X et 5 sur Y pour exclure les traits. Les temps par cellule sont consignés. La boucle s'arrête dès reconnaissance du libellé Total ; aucune rangée orale n'est ajoutée. La calibration privée seule dispose de 120 secondes par page ; le budget production reste inchangé. Le prochain benchmark devra comparer ce coût à cinq appels Tesseract par bandes de colonnes PSM6 (numériques avec whitelist), sur les mêmes limites et contrôles, avant tout changement de stratégie production.
+
+Règle d'acceptation mise à jour sur instruction utilisateur : Note et Coeff sont obligatoires ; Sur doit être lisible et égal à 20 × Coeff. Points peut être illisible (diagnostic `null` pour ce contrôle), mais une valeur lisible contradictoire bloque la ligne. Go applique la même règle, conserve Points manquant sans fabriquer de valeur extraite et vérifie les sommes contre les totaux lisibles. Les produits calculés sont exclusivement des contrôles documentaires.
+
+Le run privé précédent reste en échec : 31,193 s, colonnes décalées, budget épuisé. La vérification locale sur la zone de tableau diagnostique retrouve 8 rangées et des largeurs relatives 53/11/11/13/11 %, sans succès OCR déclaré. Le nouveau run automatique Docker reste à effectuer.
+
+### Règle d'acceptation corrigée — prioritaire sur la règle précédente
+
+Sur = 20 × Coeff valide uniquement le coefficient. Une note exige Points = Note × Coeff sur sa ligne, OU les deux sommes exactes Σ Note×Coeff = Total Points et Σ Coeff = Total Coeff. Points illisible ne valide donc plus une note sans totaux. Points lisible contradictoire reste bloquant. Les statuts `coefficientStatus` et `gradeStatus` sont séparés ; validation par ligne ou par totaux explicitée. Go vérifie la preuve décimale indépendamment et exige des totaux Points lisibles pour l'acceptation du dossier. Coeff entier 1..6 ; Sur multiple de 20 cohérent ; Note 0..20. Aucun seuil de confiance ne supplée un contrôle arithmétique manquant.
+
+La limite physique de l'en-tête est exclue avant la projection des rangées, avec marge intérieure de 5 px sur X / 4 px sur Y. Le traitement effectif de chaque cellule est loggé : HSV_V_CELL_OTSU ; pour Points trop noir (>45 %), RED_CELL_CLAHE_OTSU. Cette décision utilise la densité du crop, pas ses valeurs attendues. Le TSV d'un seul appel fournit texte et confiance : seuls les mots level=5, confidences négatives ignorées et comptées, confiance moyenne des mots restants, véritables zéros conservés.
+
+Dernier scan privé Docker : 36,864 s, NEEDS_REVIEW, aucune extraction complète acceptée, Total et série encore illisibles. Il ne valide pas la nouvelle correction. Les contrôles locaux et le run privé suivant restent distincts.
+
+### Correction documentaire : notes dérivées exclusivement après trois totaux
+
+Instruction utilisateur prioritaire : quand Σ Coeff, Σ Points et Σ Sur lus correspondent tous aux cellules Total, la valeur retenue de chaque note est Points ÷ Coeff, avec `gradeStatus=VALIDATED_BY_TOTALS` et `gradeSource=POINTS_TOTALS`. La lecture brute/directe et sa divergence restent conservées. Coeff n'est jamais dérivé. Une somme fausse ou incomplète garde toutes les lignes en NEEDS_REVIEW. Les décimales non terminantes ne sont ni arrondies ni inventées. Go autorise une divergence note brute/valeur retenue uniquement pour ce mode avec preuve complète indépendante en rationnels exacts et coordonnées Points/Sur ; les autres extractions gardent l'égalité lecture brute/valeur. Aucun calcul de moyenne d'admission n'est introduit.
+
+Parseur : virgule décimale et séparateur final isolé acceptés (`18.`, `80 .`), sans assembler des chiffres séparés. Le contrôle Sur/Coeff ne dépend plus de la lisibilité de Note. Les noyaux morphologiques longs suppriment les traits sur chaque cellule avant agrandissement ; les crops de données ont une marge symétrique autour de leur propre bande, y compris Anglais, sans remonter à l'en-tête. Seuils de confiance inchangés.
+
+Dernier run privé : 40,398 s, NEEDS_REVIEW, 8 rangées correctement isolées ; les notes et totaux restent insuffisants. La nouvelle correction attend son run OCR réel. Validation locale avant relance : 74 tests Python et Go tests PASS ; aucune précision réelle déclarée acquise.
