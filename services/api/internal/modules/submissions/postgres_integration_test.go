@@ -246,6 +246,10 @@ func (h *harness) confirm(hash []byte) {
 	}
 }
 
+func (h *harness) year() int {
+	return h.count(`SELECT numbering_year FROM admission_campaigns WHERE code='DEV_LOCAL'`)
+}
+
 func (h *harness) count(query string, args ...any) int {
 	h.t.Helper()
 	var n int
@@ -278,6 +282,10 @@ func TestPostgresSubmission(t *testing.T) {
 		}
 		if _, err := h.pool.Exec(ctx, `UPDATE admission_campaigns SET numbering_year=1999 WHERE code='BACKFILL_CHECK'`); err == nil {
 			t.Fatal("numbering year outside 2000-9999 accepted")
+		}
+		// The development seed numbers in the current year (Porto-Novo time).
+		if h.count(`SELECT numbering_year FROM admission_campaigns WHERE code='DEV_LOCAL'`) != h.count(`SELECT extract(year FROM now() AT TIME ZONE 'Africa/Porto-Novo')::int`) {
+			t.Fatal("seed numbering year is not the current year")
 		}
 	})
 
@@ -413,13 +421,13 @@ func TestPostgresSubmission(t *testing.T) {
 	var number string
 	t.Run("successful submission writes number, exact average, snapshot and audit", func(t *testing.T) {
 		submittedHash, submitted = h.prepare(h.person("success@example.invalid"))
-		counter := h.count(`SELECT coalesce(max(last_serial),0) FROM application_number_counters c JOIN programs p ON p.id=c.program_id WHERE p.code='GL' AND c.numbering_year=2000`)
+		counter := h.count(`SELECT coalesce(max(last_serial),0) FROM application_number_counters c JOIN programs p ON p.id=c.program_id WHERE p.code='GL' AND c.numbering_year=(SELECT numbering_year FROM admission_campaigns WHERE code='DEV_LOCAL')`)
 		receipt, out, err := h.subs.Submit(ctx, submittedHash, submitted.Version)
 		if err != nil || out.Replay {
 			t.Fatal(err)
 		}
 		number = receipt.ApplicationNumber
-		if want := fmt.Sprintf("IFRI-2000-GL-%06d", counter+1); number != want {
+		if want := fmt.Sprintf("IFRI-%d-GL-%06d", h.year(), counter+1); number != want {
 			t.Fatal(number, want)
 		}
 		if receipt.Program.Code != "GL" || receipt.Candidate.LastName != "Synthétique" || receipt.SubmittedAt.IsZero() || receipt.GraduationYear != 2025 {
@@ -669,7 +677,7 @@ func TestPostgresSubmission(t *testing.T) {
 
 	t.Run("rollback: an injected failure leaves no number, snapshot or audit", func(t *testing.T) {
 		hash, d := h.prepare(h.person("rollback@example.invalid"))
-		serial := h.count(`SELECT last_serial FROM application_number_counters c JOIN programs p ON p.id=c.program_id WHERE p.code='GL' AND numbering_year=2000`)
+		serial := h.count(`SELECT last_serial FROM application_number_counters c JOIN programs p ON p.id=c.program_id WHERE p.code='GL' AND numbering_year=(SELECT numbering_year FROM admission_campaigns WHERE code='DEV_LOCAL')`)
 		var expires time.Time
 		if err := h.pool.QueryRow(ctx, `SELECT expires_at FROM application_draft_sessions WHERE secret_hash=$1`, hash).Scan(&expires); err != nil {
 			t.Fatal(err)
@@ -694,11 +702,11 @@ func TestPostgresSubmission(t *testing.T) {
 		if after.State != "DRAFT" || after.ApplicationNumber != nil || after.Version != d.Version || !stillExpires.Equal(expires) ||
 			h.count(`SELECT count(*) FROM application_submissions WHERE application_id=$1::uuid`, d.ID) != 0 ||
 			h.count(`SELECT count(*) FROM application_submission_flags WHERE application_id=$1::uuid`, d.ID) != 0 ||
-			h.count(`SELECT last_serial FROM application_number_counters c JOIN programs p ON p.id=c.program_id WHERE p.code='GL' AND numbering_year=2000`) != serial {
+			h.count(`SELECT last_serial FROM application_number_counters c JOIN programs p ON p.id=c.program_id WHERE p.code='GL' AND numbering_year=(SELECT numbering_year FROM admission_campaigns WHERE code='DEV_LOCAL')`) != serial {
 			t.Fatal("partial submission persisted")
 		}
 		receipt, _, err := h.subs.Submit(ctx, hash, d.Version)
-		if err != nil || receipt.ApplicationNumber != fmt.Sprintf("IFRI-2000-GL-%06d", serial+1) {
+		if err != nil || receipt.ApplicationNumber != fmt.Sprintf("IFRI-%d-GL-%06d", h.year(), serial+1) {
 			t.Fatal("retry after rollback", receipt.ApplicationNumber, err)
 		}
 	})
@@ -824,7 +832,7 @@ func TestPostgresSubmission(t *testing.T) {
 	})
 
 	t.Run("rollback of migration 00006 refused while submissions exist", func(t *testing.T) {
-		if _, err := h.provider.Down(ctx); err == nil || !strings.Contains(err.Error(), "rollback refused") {
+		if _, err := h.provider.DownTo(ctx, 5); err == nil || !strings.Contains(err.Error(), "rollback refused") {
 			t.Fatal("down accepted", err)
 		}
 		if h.count(`SELECT count(*) FROM information_schema.columns WHERE table_schema=current_schema() AND table_name='applications' AND column_name='application_number'`) != 1 {
@@ -876,7 +884,7 @@ func TestPostgresSubmissionMigrationRoundTrip(t *testing.T) {
 	if !strings.Contains(source(), "state='DRAFT') THEN RETURN") {
 		t.Fatal("submitted analyses not protected")
 	}
-	if _, err := h.provider.Down(ctx); err != nil {
+	if _, err := h.provider.DownTo(ctx, 5); err != nil {
 		t.Fatal(err)
 	}
 	if strings.Contains(source(), "state='DRAFT') THEN RETURN") || h.count(`SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN ('application_submissions','audit_events','application_number_counters')`) != 0 ||
@@ -891,5 +899,31 @@ func TestPostgresSubmissionMigrationRoundTrip(t *testing.T) {
 	}
 	if v, err := h.analyses.Current(ctx, hash); err != nil || v.Status != "QUEUED" {
 		t.Fatal("draft analysis lost by the round trip", err)
+	}
+}
+
+// Separate schema: the main test publishes a simulated second grid, which a seed rerun would
+// (rightly) refuse to republish over.
+func TestPostgresNumberingYearFrozen(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
+	defer cancel()
+	h := isolated(t, ctx, 0, "")
+	year := h.year()
+	if _, err := h.pool.Exec(ctx, `UPDATE admission_campaigns SET numbering_year=numbering_year+1 WHERE code='DEV_LOCAL'`); err != nil {
+		t.Fatal("numbering year must stay editable before the first number", err)
+	}
+	if _, err := h.pool.Exec(ctx, `UPDATE admission_campaigns SET numbering_year=$1 WHERE code='DEV_LOCAL'`, year); err != nil {
+		t.Fatal(err)
+	}
+	hash, d := h.prepare(h.person("frozen@example.invalid"))
+	receipt, _, err := h.subs.Submit(ctx, hash, d.Version)
+	if err != nil || !strings.HasPrefix(receipt.ApplicationNumber, fmt.Sprintf("IFRI-%d-", year)) {
+		t.Fatal(receipt.ApplicationNumber, err)
+	}
+	if _, err = h.pool.Exec(ctx, `UPDATE admission_campaigns SET numbering_year=numbering_year+1 WHERE code='DEV_LOCAL'`); err == nil || !strings.Contains(err.Error(), "frozen") {
+		t.Fatal("numbering year changed after a number was issued", err)
+	}
+	if err = seeds.Development(ctx, h.pool, "test"); err != nil || h.year() != year {
+		t.Fatal("seed rerun", err)
 	}
 }

@@ -137,7 +137,7 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 - [x] UI : récapitulatif sans moyenne, dialogue natif `showModal()`, messages par code, retour à Documents sur `ADMISSION_RULES_CHANGED`, page de confirmation (copie, impression, aucune modification), redirection après refresh.
 - [x] Tests : unitaires (calcul, troncature, numéro, méthodes), HTTP, intégration PostgreSQL (préconditions, concurrence réelle, verrouillage, immuabilité, rollback, migrations), Vitest, Playwright jusqu'à `SUBMITTED`.
 - [x] `make check` vert ; SUBMISSION_WORKFLOW et PHASE6_VALIDATION écrits.
-- [ ] Commit des changements de la phase 6 (par l'utilisateur).
+- [x] Commit des changements de la phase 6 (par l'utilisateur).
 
 ### Suites notées pendant la phase 6
 
@@ -147,3 +147,21 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 - [ ] **Phase 10 ou plus tard** : consultation du récépissé par numéro + code envoyé par email, pour un candidat qui a perdu son cookie ou changé de navigateur.
 - [ ] **Repli manuel** (ADR 092) : politique et seuil d'échecs d'analyse à définir avec l'IFRI avant implémentation.
 - [ ] **Avant production** : `numbering_year` de chaque campagne réelle à confirmer ; politique de doublons à trancher par l'IFRI.
+
+## Phase 7 — administration (14 octobre 2026)
+
+- [x] Préalable : stack Playwright isolée et jetable (`infra/scripts/e2e.sh`, `make e2e`, `make check-fast`), mémoire mesurée ; seed `numbering_year` = année courante, année gelée dès le premier numéro (00007).
+- [x] Migration 00007 : comptes, secrets TOTP chiffrés, codes de secours, jetons d'activation, sessions, attributions de rôle historisées ; down refusé s'il existe des comptes.
+- [x] Paquets `secrets` (HKDF, trois sous-clés), `passwords` (argon2id, liste figée), `totp` (RFC 6238, QR SVG), `ratelimit` (Redis Lua) ; module `audit` partagé.
+- [x] Module `admin` : connexion, MFA, activation, mot de passe, comptes, rôles et périmètres, journal ; registre de routes à permission obligatoire ; en-têtes stricts ; CLI `create-super-admin`, `reset-mfa`, `reactivate`, `reset-password`.
+- [x] Interface `/admin` : connexion, activation, enrôlement et saisie TOTP, codes de secours, mon compte, comptes, journal, tableau de bord vide ; UI UX Pro Max (`pages/admin.md`).
+- [x] Tests Go unitaires et intégration (PostgreSQL + Redis réels), Vitest, Playwright sur stack isolée ; `make check` vert.
+- [ ] Commit des changements de la phase 7 (par l'utilisateur).
+- [ ] **Base de dev** : recréer son volume pour repartir sans les 4 soumissions synthétiques et avec `numbering_year` = année courante (commande dans PHASE7_VALIDATION), à faire par l'utilisateur.
+
+### Suites notées pendant la phase 7
+
+- [ ] **Phase 8** : appeler `audit.RecordAccess` à chaque ouverture de dossier ; filtrer les listes avec `Principal.Scope` ; afficher les drapeaux de doublon dans les deux sens.
+- [ ] **Phase 10** : en-têtes et CSP de production dans Nginx (politique dans ADMIN_SECURITY), HSTS, proxys de confiance pour l'IP cliente de la limitation de débit, secrets (`ADMIN_SECRETS_KEY`) dans le gestionnaire de secrets.
+- [ ] **Rotation de `ADMIN_SECRETS_KEY`** : trousseau multi-versions et rechiffrement à la connexion (préparé par `key_version`, non implémenté).
+- [ ] **IFRI** : durée de conservation de l'audit et des IP pseudonymisées ; réinitialisation de mot de passe par email ; second facteur matériel (WebAuthn) éventuel.

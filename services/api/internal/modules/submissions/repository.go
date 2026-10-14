@@ -13,6 +13,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"ifri-admissions/services/api/internal/modules/analysis"
+	"ifri-admissions/services/api/internal/modules/audit"
 	"ifri-admissions/services/api/internal/modules/drafts"
 	"ifri-admissions/services/api/internal/modules/references"
 )
@@ -229,11 +230,8 @@ func (r *Repository) Submit(ctx context.Context, hash []byte, version int64) (Re
 		}
 		codes = append(codes, f.Code)
 	}
-	metadata, err := json.Marshal(map[string]any{"submissionId": out.SubmissionID, "ocrAnalysisId": cur.ID, "ruleSetVersionId": grid, "transcriptVersionId": transcript.VersionID, "validationPath": "CANDIDATE_CONFIRMED_OCR", "calculationVersion": CalculationVersion, "subjectCount": len(subjects), "flags": codes})
-	if err != nil {
-		return Receipt{}, out, err
-	}
-	if _, err = tx.Exec(ctx, `INSERT INTO audit_events(event_type,actor_type,actor_id,target_type,target_id,metadata) VALUES('APPLICATION_SUBMITTED','CANDIDATE',$1::uuid,'APPLICATION',$2::uuid,$3::jsonb)`, candidate, d.ID, metadata); err != nil {
+	if err = audit.Record(ctx, tx, "APPLICATION_SUBMITTED", audit.Actor{Type: audit.ActorCandidate, ID: candidate}, "APPLICATION", d.ID,
+		map[string]any{"submissionId": out.SubmissionID, "ocrAnalysisId": cur.ID, "ruleSetVersionId": grid, "transcriptVersionId": transcript.VersionID, "validationPath": "CANDIDATE_CONFIRMED_OCR", "calculationVersion": CalculationVersion, "subjectCount": len(subjects), "flags": codes}); err != nil {
 		return Receipt{}, out, err
 	}
 	tag, err := tx.Exec(ctx, `UPDATE applications SET state='SUBMITTED',application_number=$2,submitted_at=now(),version=version+1,updated_at=now() WHERE id=$1::uuid AND state='DRAFT' AND version=$3`, d.ID, number, version)

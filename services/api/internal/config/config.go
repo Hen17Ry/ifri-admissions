@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"ifri-admissions/services/api/internal/platform/secrets"
 )
 
 type Config struct {
@@ -19,7 +21,16 @@ type Config struct {
 	DraftSessionTTL                                                                         time.Duration
 	S3Endpoint, S3Bucket, S3Region, S3AccessKey, S3SecretKey                                string
 	DocumentMaxBytes                                                                        int64
+	// Administration (phase 7). The master key never leaves the process: HKDF subkeys only.
+	AdminSecretsKey                        []byte
+	AdminSecretsKeyVersion                 int
+	AdminMFARequired                       bool
+	AdminSessionIdle, AdminSessionAbsolute time.Duration
+	AdminActivationTTL                     time.Duration
 }
+
+// ExampleAdminSecretsKey is the documented development key of .env.example, refused in production.
+const ExampleAdminSecretsKey = "ZGV2LW9ubHktYWRtaW4tc2VjcmV0cy1rZXktMzItYnl0ZXMhIQ=="
 
 func Load() (Config, error) { return load(os.Getenv) }
 
@@ -121,7 +132,66 @@ func load(get func(string) string) (Config, error) {
 		return c, fmt.Errorf("DOCUMENT_MAX_BYTES must be between 1024 and 52428800")
 	}
 
+	if err = loadAdmin(get, &c); err != nil {
+		return c, err
+	}
 	return c, nil
+}
+
+func seconds(get func(string) string, key, fallback string, min, max int) (time.Duration, error) {
+	value := get(key)
+	if value == "" {
+		value = fallback
+	}
+	n, err := strconv.Atoi(value)
+	if err != nil || n < min || n > max {
+		return 0, fmt.Errorf("%s must be between %d and %d seconds", key, min, max)
+	}
+	return time.Duration(n) * time.Second, nil
+}
+
+func loadAdmin(get func(string) string, c *Config) error {
+	raw := strings.TrimSpace(get("ADMIN_SECRETS_KEY"))
+	if raw == "" {
+		return fmt.Errorf("ADMIN_SECRETS_KEY is required")
+	}
+	if c.Environment == "production" && raw == ExampleAdminSecretsKey {
+		return fmt.Errorf("the example ADMIN_SECRETS_KEY is forbidden in production")
+	}
+	key, err := secrets.ParseMaster(raw)
+	if err != nil {
+		return err
+	}
+	c.AdminSecretsKey = key
+	version := get("ADMIN_SECRETS_KEY_VERSION")
+	if version == "" {
+		version = "1"
+	}
+	c.AdminSecretsKeyVersion, err = strconv.Atoi(version)
+	if err != nil || c.AdminSecretsKeyVersion < 1 || c.AdminSecretsKeyVersion > 32767 {
+		return fmt.Errorf("ADMIN_SECRETS_KEY_VERSION must be between 1 and 32767")
+	}
+	switch get("ADMIN_MFA_REQUIRED") {
+	case "", "true":
+		c.AdminMFARequired = true
+	case "false":
+		if c.Environment == "production" {
+			return fmt.Errorf("ADMIN_MFA_REQUIRED=false is forbidden in production")
+		}
+	default:
+		return fmt.Errorf("ADMIN_MFA_REQUIRED must be true or false")
+	}
+	if c.AdminSessionIdle, err = seconds(get, "ADMIN_SESSION_IDLE_SECONDS", "1800", 300, 7200); err != nil {
+		return err
+	}
+	if c.AdminSessionAbsolute, err = seconds(get, "ADMIN_SESSION_ABSOLUTE_SECONDS", "28800", 1800, 86400); err != nil {
+		return err
+	}
+	if c.AdminSessionAbsolute < c.AdminSessionIdle {
+		return fmt.Errorf("ADMIN_SESSION_ABSOLUTE_SECONDS must not be shorter than ADMIN_SESSION_IDLE_SECONDS")
+	}
+	c.AdminActivationTTL, err = seconds(get, "ADMIN_ACTIVATION_TTL_SECONDS", "259200", 3600, 604800)
+	return err
 }
 
 func (c Config) DatabaseURL() string {

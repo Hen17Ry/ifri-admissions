@@ -284,7 +284,9 @@ L’analyse est automatique dans la carte du relevé : cinq étapes, confirmatio
 make check          # tout : statique, stack Docker + intégration + smoke + ocr-tests, Playwright
 make check-static   # sans Docker : web, Go, Python, Ruff, Compose config
 make check-stack    # stack reconstruite, migrations, seed, intégration Go, smoke HTTP, ocr-tests
-make check-browser  # Playwright (Vite démarré par la suite, port 5173 libre)
+make check-fast     # tout sauf Playwright (statique + stack), pour itérer
+make check-browser  # Playwright seul sur la stack isolée « ifri-e2e » (= make e2e)
+make e2e            # stack jetable ifri-e2e (images réutilisées, ports 18180/19100) ; ARGS="admin.spec.ts"
 make ocr-private    # corpus privé ignoré : <nom>.pdf + <nom>.expected.json ; ARGS=--keep-debug
                     # ou ARGS="--numeric-engine tesseract" pour comparer les lecteurs de chiffres
 make ocr-engines-benchmark  # benchmark BAC synthétique avec RapidOCR (production) puis Tesseract
@@ -293,3 +295,18 @@ make ocr-engines-benchmark  # benchmark BAC synthétique avec RapidOCR (producti
 `make check` tient lieu de CI tant que le dépôt n'a pas de remote ; il continue après un échec et imprime un tableau PASS/FAIL avec durées et le chemin des journaux.
 
 Corpus privé : chaque `services/ocr/tests/private-fixtures/<nom>.pdf` accompagné de `<nom>.expected.json` (`{"qualification": "BAC_D", "program": "GL", "series": "D", "subjects": {"MATH": {"grade": "…", "coefficient": "…"}, …}}`), tous deux ignorés par Git et les contextes Docker. Montage en lecture seule sous un nom anonyme, budget de page de production, validation Go incluse ; le rapport ne contient que des issues par champ (EXACT / FALSE / MISSING) et le nombre de valeurs fausses acceptées. Sans corpus : NON TESTÉ, sans bloquer la suite.
+
+## Phase 7 — administration (`/admin`)
+
+Aucune inscription publique. Le premier super-administrateur est créé sur le serveur, mot de passe saisi sans écho (ou lu sur l’entrée standard), jamais en argument :
+
+```sh
+docker compose exec api api admin create-super-admin --email admin@ifri.example --name "Nom Prénom"
+docker compose exec api api admin reset-mfa --email admin@ifri.example    # téléphone et codes perdus
+docker compose exec api api admin reactivate --email admin@ifri.example   # compte désactivé
+docker compose exec api api admin reset-password --email admin@ifri.example  # mot de passe oublié : nouveau lien
+```
+
+Puis connexion sur http://localhost:5173/admin et enrôlement TOTP. `ADMIN_SECRETS_KEY` (base64, 32 octets ou plus : `openssl rand -base64 48`) est obligatoire ; sa perte rend illisibles les secrets TOTP. Sécurité, clés et procédures : docs/ADMIN_SECURITY.md.
+
+Playwright tourne sur une stack Docker isolée et jetable (`make e2e`) : aucune candidature soumise n’est laissée dans la base de développement. Mémoire mesurée : environ 0,8 Gio pour la stack e2e en plus des 0,35 à 0,5 Gio de la stack de développement et d’environ 1,3 Gio pour Vite, Playwright et Chromium. Sur une machine plus juste, arrêter la stack de développement (`docker compose stop`) avant `make e2e`.

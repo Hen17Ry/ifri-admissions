@@ -163,3 +163,34 @@ Immuabilité (triggers) :
 `refresh_transcript_analysis` s'arrête désormais hors `DRAFT` ; le reste de la fonction est identique. Le down refuse s'il existe des soumissions, des compteurs, des événements d'audit ou une application non `DRAFT`, puis restaure la fonction de la phase 5.
 
 Statuts administratifs futurs (phase 8) : table séparée et historisée, jamais une colonne modifiable d'`applications` (ADR 088).
+
+## Phase 7 — administration (migration 00007)
+
+Migration `00007_admin_security.sql` ; les migrations 00001–00006 sont inchangées. Sécurité : ADMIN_SECURITY ; décisions : ADR 095–108.
+
+- **`admin_users`** :
+  - email unique, en minuscules ;
+  - nom affiché ;
+  - `password_hash` argon2id, NULL avant l'activation ;
+  - `status` (`PENDING_ACTIVATION`, `ACTIVE`, `DISABLED`) ; un compte `ACTIVE` a toujours un mot de passe, et `DISABLED` ⇔ `disabled_at` ;
+  - `mfa_enabled_at`, `last_login_at`, `created_by`.
+
+  DELETE et TRUNCATE sont refusés : un compte n'est jamais supprimé.
+- **`admin_totp_secrets`** (un par compte) : `key_version`, nonce de 12 octets, chiffré AES-256-GCM, `confirmed_at` (enrôlement validé), `last_used_step` (anti-rejeu).
+- **`admin_recovery_codes`** : SHA-256 unique du code, `used_at`.
+- **`admin_activation_tokens`** : SHA-256 du jeton, `expires_at`, `used_at` ou `revoked_at` (exclusifs), `created_by`.
+- **`admin_sessions`** :
+  - SHA-256 du jeton ;
+  - `stage` (`MFA_ENROLLMENT`, `MFA_VERIFICATION`, `ACTIVE`) ;
+  - `last_seen_at`, `absolute_expires_at` ;
+  - `revoked_at` et `revoked_reason` (`LOGOUT`, `PASSWORD_CHANGED`, `ACCOUNT_DISABLED`, `ROLES_CHANGED`, `MFA_RESET`, `EXPIRED`, `SUPERSEDED`).
+- **`admin_role_assignments`** :
+  - `role` (`SUPER_ADMIN`, `REVIEWER`, `SELECTION_MANAGER`, `AUDITOR`) ;
+  - `program_id` NULL = toutes les filières, interdit pour `SUPER_ADMIN` et `AUDITOR` ;
+  - `granted_by` et `granted_at`, `revoked_by` et `revoked_at` ;
+  - unicité de l'attribution active.
+
+  Une attribution ne peut qu'être révoquée, une seule fois ; DELETE et TRUNCATE sont refusés.
+- **`admission_campaigns.numbering_year`** : modification refusée dès qu'un numéro existe dans la campagne.
+
+Les rôles et leurs permissions sont des constantes du code, pas des tables. Les statuts de revue de la phase 8 iront dans une table séparée et historisée (ADR 088). Le down de 00007 refuse de s'exécuter s'il existe un compte administrateur.

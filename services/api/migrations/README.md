@@ -15,4 +15,6 @@ Les migrations sont explicites, jamais exécutées au démarrage HTTP. Un verrou
 
 `00006_application_submissions.sql` (phase 6) ajoute numéro, snapshot de soumission, drapeaux, audit et immuabilité. Son down **refuse** de s'exécuter s'il existe une soumission, un compteur de numéros, un événement d'audit ou une application non `DRAFT` : il ne détruit jamais de soumission en silence.
 
+`00007_admin_security.sql` (phase 7) ajoute les comptes administrateurs, la MFA, les sessions, les attributions de rôle et le gel de `numbering_year`. Son down refuse de s'exécuter s'il existe un compte administrateur.
+
 Les tests `-tags=integration` créent un schéma temporaire unique sur PostgreSQL réel, appliquent Up, seed deux fois, vérifient contraintes/matrice puis Down/Up ; seul ce schéma est supprimé. Aucun candidat ou document créé.

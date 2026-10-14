@@ -1,5 +1,5 @@
 # Local entry points. `make check` is the CI of record until a Git remote exists.
-.PHONY: check check-static check-stack check-browser fixtures ocr-private ocr-engines-benchmark
+.PHONY: check check-fast check-static check-stack check-browser e2e fixtures ocr-private ocr-engines-benchmark
 
 check:
 	infra/scripts/check.sh all
@@ -10,8 +10,17 @@ check-static:
 check-stack:
 	infra/scripts/check.sh stack
 
+# Everything except the isolated Playwright stack (quicker iterations on a modest machine).
+check-fast:
+	infra/scripts/check.sh fast
+
 check-browser:
 	infra/scripts/check.sh browser
+
+# Playwright only, on the disposable "ifri-e2e" stack (images reused, no rebuild).
+# ARGS="admin.spec.ts" for one file; the development stack may stay up or be stopped.
+e2e:
+	infra/scripts/e2e.sh $(ARGS)
 
 # Deliberately refresh the committed synthetic fixtures (the test profile only compares them).
 fixtures:

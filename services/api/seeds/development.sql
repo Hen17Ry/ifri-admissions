@@ -1,8 +1,11 @@
 -- LOCAL DEVELOPMENT ONLY. Campaign, rules and null quotas; not production configuration.
--- numbering_year follows the opening date, like the migration 00006 backfill.
+-- Development numbers use the current year (Porto-Novo time). The year is only refreshed while
+-- the campaign has issued no number: migration 00007 freezes it afterwards.
 INSERT INTO admission_campaigns(code,name,academic_year,numbering_year,starts_at,ends_at,status)
-VALUES ('DEV_LOCAL','DÉMONSTRATION LOCALE — NON OFFICIELLE','DEVELOPMENT',2000,'2000-01-01T00:00:00Z','2100-01-01T00:00:00Z','OPEN')
-ON CONFLICT (code) DO NOTHING;
+VALUES ('DEV_LOCAL','DÉMONSTRATION LOCALE — NON OFFICIELLE','DEVELOPMENT',extract(year FROM now() AT TIME ZONE 'Africa/Porto-Novo')::smallint,'2000-01-01T00:00:00Z','2100-01-01T00:00:00Z','OPEN')
+ON CONFLICT (code) DO UPDATE SET numbering_year=EXCLUDED.numbering_year
+WHERE admission_campaigns.numbering_year<>EXCLUDED.numbering_year
+AND NOT EXISTS (SELECT 1 FROM applications a WHERE a.campaign_id=admission_campaigns.id AND a.application_number IS NOT NULL);
 INSERT INTO campaign_programs(campaign_id,program_id,available_seats)
 SELECT c.id,p.id,NULL FROM admission_campaigns c CROSS JOIN programs p
 WHERE c.code='DEV_LOCAL' AND p.code IN ('IA','SI','GL','IM','SEIOT')

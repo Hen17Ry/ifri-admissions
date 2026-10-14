@@ -168,3 +168,15 @@ Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs 
 ## Phase 6 — module `submissions`
 
 `internal/modules/submissions` : modèle pur (calcul exact en `big.Rat`, troncature à 30 décimales, format du numéro, méthode de validation déduite de la preuve OCR), repository pgx (transaction unique de soumission, rejeu idempotent, récépissé) et handlers net/http sous le chemin du cookie de brouillon. Les modules `drafts`, `documents` et `analysis` partagent `drafts.Editable`, qui renvoie `APPLICATION_LOCKED` avant tout contrôle de version. PostgreSQL porte la dernière ligne de défense : CHECK, triggers d'immuabilité et contraintes différées de cohérence du snapshot. Vue : `features/submission` (API, store du récépissé, `SubmitDialog` natif) et la page `SubmissionConfirmationPage`. Contrat : SUBMISSION_WORKFLOW.
+
+## Phase 7 — module `admin` et paquets de sécurité
+
+- **`internal/platform`** : `secrets` (HKDF, AES-GCM, HMAC), `passwords` (argon2id, politique, liste embarquée), `totp` (RFC 6238, QR SVG), `ratelimit` (Redis, Lua atomique). Ces paquets ne connaissent ni HTTP ni SQL métier.
+- **`internal/modules/audit`** : écriture partagée dans `audit_events` (`Record`, `RecordAccess`), réutilisée par les soumissions.
+- **`internal/modules/admin`** :
+  - permissions et rôles (constantes) ;
+  - service (comptes, sessions, MFA, audit, commandes serveur) ;
+  - transport (`Router.Handle(méthode, chemin, permission, handler)` et un garde unique), monté sous `/api/v1/admin/` derrière ses propres en-têtes.
+- **CLI** : `api admin …` dans le même binaire, sur le serveur seulement.
+- **Vue** : `features/admin` (API avec jeton CSRF en mémoire, store de session Pinia, garde de routeur, composants), `layouts/AdminLayout` et `AdminAuthLayout`, `pages/admin/*`. La garde du routeur ne fait qu'orienter vers le bon écran : l'API décide de tout.
+- **Tests navigateur** : Playwright tourne sur une stack Compose jetable (`infra/scripts/e2e.sh`). Contrat de sécurité : ADMIN_SECURITY.

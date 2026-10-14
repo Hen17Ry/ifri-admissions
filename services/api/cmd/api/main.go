@@ -18,6 +18,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"ifri-admissions/services/api/internal/config"
+	"ifri-admissions/services/api/internal/modules/admin"
 	"ifri-admissions/services/api/internal/modules/analysis"
 	"ifri-admissions/services/api/internal/modules/documents"
 	"ifri-admissions/services/api/internal/modules/drafts"
@@ -26,12 +27,16 @@ import (
 	"ifri-admissions/services/api/internal/platform/database"
 	"ifri-admissions/services/api/internal/platform/httpserver"
 	"ifri-admissions/services/api/internal/platform/pdfcheck"
+	"ifri-admissions/services/api/internal/platform/ratelimit"
 	"ifri-admissions/services/api/internal/platform/storage"
 )
 
 func main() {
 	if len(os.Args) == 2 && os.Args[1] == "healthcheck" {
 		os.Exit(healthcheck())
+	}
+	if len(os.Args) >= 2 && os.Args[1] == "admin" {
+		os.Exit(adminCommand(os.Args[2:]))
 	}
 	logger := slog.New(slog.NewJSONHandler(os.Stdout, nil)).With("service", "api", "environment", os.Getenv("APP_ENV"))
 	if err := run(logger); err != nil {
@@ -112,6 +117,11 @@ func run(logger *slog.Logger) error {
 	}()
 	defer internalServer.Close()
 	go analysisRepo.Dispatch(ctx, cache, logger)
+	adminService, err := newAdminService(c, logger, ratelimit.Redis{Client: cache, Prefix: "ifri:admin:rl:"})
+	if err != nil {
+		return fmt.Errorf("administration setup failed")
+	}
+	adminService.Pool = pool
 	handler := httpserver.New(c.FrontendOrigin, map[string]httpserver.Check{
 		"postgres": pool.Ping,
 		"redis":    func(ctx context.Context) error { return cache.Ping(ctx).Err() },
@@ -122,6 +132,7 @@ func run(logger *slog.Logger) error {
 		drafts.Register(mux, drafts.NewRepository(pool), c.DraftSessionTTL, c.FrontendOrigin, c.Environment == "production", logger)
 		documents.Register(mux, documents.NewService(documents.NewRepository(pool), objects, pdfcheck.QPDF{}, c.DocumentMaxBytes, logger), c.FrontendOrigin, c.Environment == "production", logger)
 		submissions.Register(mux, &submissions.Repository{Pool: pool, Logger: logger}, c.FrontendOrigin, c.Environment == "production", logger)
+		admin.Register(mux, adminService, c.FrontendOrigin, c.Environment == "production", logger)
 	})
 	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 75 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
 	listener, err := net.Listen("tcp", server.Addr)

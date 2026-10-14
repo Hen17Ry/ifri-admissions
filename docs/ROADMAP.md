@@ -13,7 +13,7 @@
 | 5 | OCR asynchrone, extraction, confirmation candidat (fixtures synthétiques) | Fait |
 | **5.1** | **Analyse automatique à l'upload + OCR fiable sur relevés réels scannés** | **Clôturée le 14 octobre 2026** — réserve : corpus réel ≥ 10 relevés requis avant la production |
 | **6** | **Moyenne pondérée, soumission atomique, numéro, verrouillage** | **Fait le 14 octobre 2026** (voir PHASE6_VALIDATION) |
-| 7 | Authentification admin, RBAC, journal d'audit | À faire |
+| **7** | **Authentification admin, RBAC, journal d'audit** | **Fait le 14 octobre 2026** (voir PHASE7_VALIDATION) |
 | 8 | Back-office : liste, filtres, dossier, preuves OCR, vérification | À faire |
 | 9 | Classement par filière, quotas, sélection, liste d'attente, exports | À faire |
 | 10 | Mise en production : CI, HTTPS/Nginx, sauvegardes, antivirus, rétention, observabilité | À faire |
@@ -32,7 +32,9 @@ Elles bloquent la mise en production, pas le développement. Chaque règle est i
 8. **Doublons** : que faire de deux candidatures d'une même campagne avec le même email, le même téléphone ou le même relevé ? Elles sont aujourd'hui signalées à l'administration sans être bloquées.
 9. **Échecs d'analyse répétés** : après combien d'échecs proposer une vérification manuelle du relevé, et qui la fait ? Le modèle de données est prêt (ADR 092).
 10. **Année des numéros** : confirmer l'année de numérotation de chaque campagne réelle (`numbering_year`, une seule année même si la campagne couvre deux années civiles).
-11. **Relevés réels** : au moins 10 relevés BAC C/D/E et DT anonymisés, **requis avant la production** pour mesurer la précision réelle ; ils confirmeront aussi la zone de la lettre de série (grande lettre en haut à gauche, observée sur un seul relevé) et la troncature de la moyenne imprimée.
+11. **Conservation des traces** : durée de conservation du journal d'audit et des adresses IP pseudonymisées (HMAC) des connexions administrateurs. Ce sont des données personnelles.
+12. **Comptes administrateurs** : qui crée les comptes, faut-il une réinitialisation du mot de passe par email (aujourd'hui seulement par une commande sur le serveur) et un second facteur matériel (clé de sécurité) ?
+13. **Relevés réels** : au moins 10 relevés BAC C/D/E et DT anonymisés, **requis avant la production** pour mesurer la précision réelle ; ils confirmeront aussi la zone de la lettre de série (grande lettre en haut à gauche, observée sur un seul relevé) et la troncature de la moyenne imprimée.
 
 ## Phase 5.1 — critères de sortie (clôture du 14 octobre 2026, voir PHASE5_1_VALIDATION)
 
@@ -56,9 +58,18 @@ Elles bloquent la mise en production, pas le développement. Chaque règle est i
 - [x] UI : récapitulatif sans moyenne, dialogue natif `showModal()`, messages par code, confirmation avec copie et impression ; Vitest et Playwright jusqu'à `SUBMITTED`, refresh et mutation refusée compris.
 - [x] Migrations up/down/up ; down refusé s'il existe des soumissions ; `make check` vert.
 
-## Phases 7 à 10 — périmètre
+## Phase 7 — critères de sortie (14 octobre 2026, voir PHASE7_VALIDATION)
 
-**7. Admin, sécurité** : comptes admin (pas d'inscription publique), mots de passe hashés (argon2id), sessions séparées des sessions candidat, rôles (ex. `REVIEWER`, `SELECTION_MANAGER`, `SUPER_ADMIN`), rate limiting de la connexion, journal d'audit de toutes les actions admin.
+- [x] Préalable : Playwright sur une stack jetable isolée (`make e2e`, `make check-fast`), sans soumission dans la base de dev ; `numbering_year` du seed = année courante, gelé dès le premier numéro.
+- [x] Comptes : aucune inscription publique, premier super-administrateur par CLI, liens d'activation à usage unique (fragment, 72 h, SHA-256), comptes désactivables jamais supprimés, dernier super-administrateur protégé.
+- [x] argon2id documenté, politique de 12 caractères et plus, refus des mots de passe courants ; TOTP RFC 6238 (±1 pas, anti-rejeu), codes de secours hachés, réinitialisation auditée ; secours `reset-mfa`, `reactivate`, `reset-password`.
+- [x] Sessions séparées, rotation, expirations, révocations ; CSRF Origin + jeton ; limitation par IP et identifiant avant argon2 ; non-énumération.
+- [x] RBAC par permissions avec périmètre par filière ; refus par défaut et matrice routes × rôles testée ; permissions des phases 8 et 9 déclarées.
+- [x] Audit de chaque action sensible, sans identifiant ni IP en clair ; `RecordAccess` prêt pour la phase 8.
+- [x] Interface `/admin` (UI UX Pro Max, `pages/admin.md`), en-têtes stricts ; Vitest et Playwright (CLI, TOTP, création, activation, désactivation).
+- [x] `make check` vert ; ADMIN_SECURITY et PHASE7_VALIDATION.
+
+## Phases 8 à 10 — périmètre
 
 **8. Back-office** : statuts de revue dans une table séparée et historisée, jamais dans `applications` (ADR 088) ; drapeaux de soumission affichés avec le lien dans les deux sens ; tableau par filière (rang, candidat, série, moyenne, statut), recherche par nom, filtres par série et statut, fiche dossier, prévisualisation des PDF, preuves OCR (crop de la ligne extraite à côté des valeurs), statuts administratifs (`EN_VERIFICATION`, `VALIDE`, `REJETE`), correction admin tracée comme un override séparé qui ne modifie jamais le snapshot de soumission.
 

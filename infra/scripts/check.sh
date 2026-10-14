@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Local CI until a remote exists: runs every validation, continues after a failure, prints a
 # PASS/FAIL table with durations and exits non-zero if anything failed.
-# Usage: infra/scripts/check.sh [static|stack|browser|all]   (default: all)
+# Usage: infra/scripts/check.sh [static|stack|browser|fast|all]   (default: all)
+#   fast = static + stack, without the isolated Playwright stack (browser = e2e only).
 set -uo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
@@ -63,15 +64,17 @@ fixtures_digest() {
 }
 
 browser() {
-  step playwright "$ROOT/apps/web" npm run test:browser
+  # Isolated, disposable Compose project: no submission is left in the development database.
+  step playwright-e2e "$ROOT" infra/scripts/e2e.sh
 }
 
 case "$SCOPE" in
   static) static ;;
   stack) stack ;;
   browser) browser ;;
+  fast) static; stack ;;
   all) static; stack; browser ;;
-  *) echo "usage: $0 [static|stack|browser|all]" >&2; exit 2 ;;
+  *) echo "usage: $0 [static|stack|browser|fast|all]" >&2; exit 2 ;;
 esac
 
 echo
