@@ -167,13 +167,8 @@ func TestPostgresAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	result := Result{ContractVersion: 1, Attempt: 1, Status: "SUCCEEDED", Engine: "synthetic-contract", EngineVersion: "1"}
-	for _, e := range expected {
-		valid, _ := validResult()
-		s := valid.Subjects[0]
-		s.SubjectID = e.ID
-		s.Position = e.Position
-		s.Detected = e.Name
-		result.Subjects = append(result.Subjects, s)
+	for i, e := range expected {
+		result.Subjects = append(result.Subjects, subjectOnRow(e, i))
 	}
 	if err = repo.Complete(ctx, v.ID, result); err != nil {
 		t.Fatal(err)
@@ -243,11 +238,56 @@ func TestPostgresAnalysis(t *testing.T) {
 	if err != nil || current.Status != "QUEUED" {
 		t.Fatal("new version did not unlock analysis", err)
 	}
-	if _, err = pool.Exec(ctx, `UPDATE ocr_analyses SET status='LOW_CONFIDENCE',failure_code='AMBIGUOUS_ROW' WHERE id=$1::uuid`, current.ID); err != nil {
-		t.Fatal(err)
+	// A worker result refused by Go is terminal at once: FAILED/RESULT_REJECTED, no replay.
+	claim = httptest.NewRequest("POST", "/internal/ocr/"+current.ID+"/claim", strings.NewReader(`{}`))
+	claim.Header.Set("Authorization", "Bearer "+secret)
+	response = httptest.NewRecorder()
+	internal.ServeHTTP(response, claim)
+	if response.Code != 200 || !strings.Contains(response.Body.String(), "PROCESSING") {
+		t.Fatal("claim rejected scenario", response.Body.String())
+	}
+	invalid := result
+	invalid.Subjects = append([]Extraction{}, result.Subjects...)
+	invalid.Subjects[0].Grade, invalid.Subjects[0].GradeRaw = "21", "21"
+	post := func(body string) int {
+		request := httptest.NewRequest("POST", "/internal/ocr/"+current.ID+"/result", strings.NewReader(body))
+		request.Header.Set("Authorization", "Bearer "+secret)
+		recorder := httptest.NewRecorder()
+		internal.ServeHTTP(recorder, request)
+		return recorder.Code
+	}
+	stale := invalid
+	stale.Attempt = 9
+	if code := post(string(jsonBytes(stale))); code != 422 {
+		t.Fatal("stale invalid result", code)
+	}
+	var failure string
+	pool.QueryRow(ctx, `SELECT status,coalesce(failure_code,'') FROM ocr_analyses WHERE id=$1::uuid`, current.ID).Scan(&status, &failure)
+	if status != "PROCESSING" {
+		t.Fatal("stale invalid attempt changed the analysis", status)
+	}
+	if code := post(string(jsonBytes(invalid))); code != 422 {
+		t.Fatal("invalid result", code)
+	}
+	pool.QueryRow(ctx, `SELECT status,coalesce(failure_code,'') FROM ocr_analyses WHERE id=$1::uuid`, current.ID).Scan(&status, &failure)
+	if status != "FAILED" || failure != "RESULT_REJECTED" {
+		t.Fatal("rejected result not terminal", status, failure)
+	}
+	if code := post(string(jsonBytes(invalid))); code != 422 {
+		t.Fatal("replayed invalid result", code)
+	}
+	if code := post(`{"contractVersion":`); code != 400 {
+		t.Fatal("malformed callback", code)
+	}
+	if _, err = pool.Exec(ctx, `UPDATE ocr_analyses SET status='PROCESSING' WHERE id=$1::uuid`, current.ID); err == nil {
+		t.Fatal("rejected analysis reopened")
+	}
+	view, err := repo.Current(ctx, hash)
+	if err != nil || view.Status != "FAILED" || view.Failure != "RESULT_REJECTED" || len(view.Subjects) != 0 {
+		t.Fatal("candidate view of rejected result", err, view.Status, view.Failure)
 	}
 	if _, err = repo.Decide(ctx, hash, current.ID, d.Version, "CONFIRMED"); err == nil {
-		t.Fatal("LOW_CONFIDENCE confirmation")
+		t.Fatal("FAILED confirmation")
 	}
 	var replacement string
 	if err = pool.QueryRow(ctx, `SELECT gen_random_uuid()::text`).Scan(&replacement); err != nil {
@@ -271,13 +311,8 @@ func TestPostgresAnalysis(t *testing.T) {
 		t.Fatal(err)
 	}
 	late := Result{ContractVersion: 1, Attempt: 1, Status: "SUCCEEDED", Engine: "synthetic-contract", EngineVersion: "1"}
-	for _, e := range expected {
-		valid, _ := validResult()
-		s := valid.Subjects[0]
-		s.SubjectID = e.ID
-		s.Position = e.Position
-		s.Detected = e.Name
-		late.Subjects = append(late.Subjects, s)
+	for i, e := range expected {
+		late.Subjects = append(late.Subjects, subjectOnRow(e, i))
 	}
 	if _, err = pool.Exec(ctx, `UPDATE ocr_analyses SET status='PROCESSING',attempt_number=1,started_at=now() WHERE id=$1::uuid`, replaced.ID); err != nil {
 		t.Fatal(err)
@@ -304,4 +339,16 @@ func TestPostgresAnalysis(t *testing.T) {
 	if _, err = provider.Up(ctx); err != nil {
 		t.Fatal(err)
 	}
+}
+
+// subjectOnRow places each expected subject on its own table row (distinct cells).
+func subjectOnRow(e Expected, row int) Extraction {
+	valid, _ := validResult()
+	s := valid.Subjects[0]
+	s.SubjectID, s.Position, s.Detected = e.ID, e.Position, e.Name
+	y := 0.1 + float64(row)*0.05
+	s.Evidence.Subject = BBox{0.1, y, 0.5, y + 0.04}
+	s.Evidence.Grade = BBox{0.55, y, 0.65, y + 0.04}
+	s.Evidence.Coefficient = BBox{0.66, y, 0.75, y + 0.04}
+	return s
 }

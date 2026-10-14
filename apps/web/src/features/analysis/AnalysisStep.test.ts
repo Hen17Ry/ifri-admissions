@@ -157,3 +157,49 @@ it('explains arithmetic review and prevents confirmation', async () => {
   expect(w.find('[role="status"]').text()).toContain('nécessitent une vérification')
   w.unmount()
 })
+
+it.each([
+  ['SERIES_MISMATCH', 'FAILED', 'ne correspond pas à celle déclarée'],
+  ['RESULT_REJECTED', 'FAILED', 'n’ont pas passé nos contrôles'],
+  ['AMBIGUOUS_ROW', 'LOW_CONFIDENCE', 'de façon ambiguë'],
+  ['GRADE_POINTS_MISMATCH', 'LOW_CONFIDENCE', 'ne correspond pas aux points'],
+] as const)('shows %s at once with a replacement action', async (code, status, text) => {
+  vi.mocked(analysisApi.current).mockResolvedValue({
+    ...result,
+    status,
+    failureCode: code,
+    subjects: [],
+  })
+  const w = mount(AnalysisStep, { props: { version: 7 } })
+  await flushPromises()
+  expect(w.text()).toContain(text)
+  expect(w.text()).not.toContain('Oui,')
+  const replace = w.findAll('button').find((b) => b.text() === 'Remplacer le relevé')
+  expect(replace).toBeDefined()
+  await replace!.trigger('click')
+  expect(w.emitted('replace')).toHaveLength(1)
+  expect(analysisApi.current).toHaveBeenCalledTimes(1) // Terminal: no polling.
+  w.unmount()
+})
+
+it('stops polling after the bound and offers a manual refresh', async () => {
+  vi.useFakeTimers()
+  vi.mocked(analysisApi.current).mockResolvedValue({
+    ...result,
+    status: 'PROCESSING',
+    subjects: [],
+  })
+  const w = mount(AnalysisStep, { props: { version: 7 } })
+  for (let i = 0; i < 70; i++) {
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(10000)
+  }
+  await flushPromises()
+  expect(analysisApi.current).toHaveBeenCalledTimes(61) // Initial read + 60 polls.
+  expect(w.text()).toContain('prend plus de temps que prévu')
+  await w.get('button').trigger('click')
+  await flushPromises()
+  expect(analysisApi.current).toHaveBeenCalledTimes(62)
+  w.unmount()
+  vi.useRealTimers()
+})

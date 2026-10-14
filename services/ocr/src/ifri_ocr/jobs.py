@@ -2,6 +2,7 @@
 
 import hashlib
 import json
+import logging
 import os
 import signal
 import subprocess
@@ -17,6 +18,8 @@ from ifri_ocr.extraction import failed
 
 STREAM = "ifri:ocr:jobs:v1"
 GROUP = "ifri-ocr-v1"
+# Go answered definitively: result persisted, refused (then marked FAILED by Go) or stale.
+TERMINAL_HTTP = {"INTERNAL_HTTP_400", "INTERNAL_HTTP_409", "INTERNAL_HTTP_422"}
 
 
 class InternalClient:
@@ -48,6 +51,21 @@ class InternalClient:
             raise RuntimeError(f"INTERNAL_HTTP_{error.code}") from None
 
 
+def deliver(api: InternalClient, identity: str, payload: dict) -> str:
+    """POST the result; a definitive refusal is acknowledged instead of replayed for minutes."""
+    try:
+        api.request(identity, "result", payload)
+    except RuntimeError as error:
+        if str(error) not in TERMINAL_HTTP:
+            raise
+        logging.getLogger("ifri_ocr").warning(
+            "Analysis result refused by API",
+            extra={"analysis_id": identity, "status": str(error)},
+        )
+        return "REFUSED"
+    return "ACCEPTED"
+
+
 def process(
     job: dict, api: InternalClient, timeout: int, minimum: float, stop: Event | None = None
 ) -> bool:
@@ -61,15 +79,23 @@ def process(
         pdf = Path(directory) / "transcript.pdf"
         content = api.request(identity, "document")
         if hashlib.sha256(content).hexdigest() != job["documentSha256"]:
-            api.request(
+            deliver(
+                api,
                 identity,
-                "result",
                 {**failed("PDF_UNREADABLE"), "attemptNumber": claim["attemptNumber"]},
             )
             return True
         pdf.write_bytes(content)
         expected = Path(directory) / "expected.json"
-        expected.write_text(json.dumps(job["expectedSubjects"]))
+        # Declared qualification lets the document series be compared; optional in contract v1.
+        expected.write_text(
+            json.dumps(
+                {
+                    "expectedSubjects": job["expectedSubjects"],
+                    "qualificationCode": job.get("qualificationCode"),
+                }
+            )
+        )
         try:
             with subprocess.Popen(
                 [sys.executable, "-m", "ifri_ocr.runner", str(pdf), str(expected), str(minimum)],
@@ -111,5 +137,5 @@ def process(
             result = failed("ANALYSIS_TIMEOUT")
         except subprocess.CalledProcessError, ValueError:
             result = failed("OCR_ENGINE_ERROR")
-        api.request(identity, "result", {**result, "attemptNumber": claim["attemptNumber"]})
+        deliver(api, identity, {**result, "attemptNumber": claim["attemptNumber"]})
     return True

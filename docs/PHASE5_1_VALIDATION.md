@@ -1,133 +1,94 @@
-# Phase 5.1 — corrective en validation
+# Phase 5.1 — validation de clôture (14 octobre 2026)
 
-Phase non terminée : changements implémentés et contrôles locaux passés ; validation Tesseract/Docker/E2E hôte nécessaire. PASS indique une exécution réelle ; NON TESTÉ ne vaut pas validation. Aucune phase 6 commencée.
+**Statut : clôturée.** Réserve : corpus réel ≥ 10 relevés requis avant la production (un seul relevé disponible, dépend de l'IFRI).
 
-## Contrôles exécutés
+Les décisions utilisateur du 14 octobre 2026 sur les points ouverts sont appliquées (ADR 078–082). `make check` est vert sur le code définitif. Critère de la clôture : **0 valeur fausse acceptée**, atteint sur le benchmark synthétique et sur le relevé réel privé, avec chacun des deux lecteurs de chiffres. PASS désigne une exécution réelle sur l'hôte avec Docker. Aucune phase 6 commencée, aucun commit effectué.
 
-| Contrôle | Résultat | Preuve / limite |
+Décisions : DECISIONS (ADR 060–082). Mesures : OCR_BENCHMARK. Pipeline : OCR_PIPELINE. Constat sur la moyenne imprimée : ADMISSION_RULES.
+
+## Décisions appliquées
+
+| Décision | Implémentation | Preuves |
 |---|---|---|
-| Bouton OCR / étape séparée | Supprimés | Cinq étapes ; assertions Vitest d’absence ; aucune route de lancement manuel n’existait |
-| Upload automatique | Mécanisme conservé | Trigger 00005 et dispatcher inspectés, sans duplication ; nouveau parcours hôte à exercer |
-| Résultat / confirmation dans Documents | PASS unitaires | Slot de la carte TRANSCRIPT, lecture seule, polling automatique et restauration PROCESSING |
-| Frontend | PASS | 29 Vitest ; build, typecheck, ESLint et Prettier exécutés |
-| Go | PASS local | gofmt, vet, go test ; validation des métadonnées scan bornées |
-| Intégration Go | PASS hôte | Suite Docker complète : PostgreSQL, Redis, S3, callbacks et autorisation ; métadonnées scan validées |
-| Python | PASS local | 44 pytest, OpenCV/NumPy réellement utilisés ; fallback moteur simulé, native PyMuPDF réel |
-| Python qualité | PASS | Ruff check et format check ; uv lock/sync officiel hôte, numpy 2.4.6 et OpenCV headless 4.13.0.92 |
-| BAC écrit/oral | PASS unitaires | Matières dupliquées, Total exclu, section écrite, colonnes et contrôles Points/Sur, headers/ancres multilignes |
-| Géométrie | PASS unitaires | Deskew crédible, perspective signalée, coordonnées crop transformées vers page source |
-| Image-only / image→PDF | PASS unitaires | PNG/JPEG sans couche texte, scan path à 300 DPI et deux passes ; moteur simulé |
-| Désaccord multipass | PASS unitaire | Valeurs contradictoires → AMBIGUOUS_ROW, aucune valeur devinée |
-| Compose | Configuration PASS | Profil test validé ; socket Docker refusé dans l’environnement Codex |
-| Tesseract renforcé | PASS synthétique hôte, nouvelle correction à revalider | 43 pytest Docker et corpus texte/scan antérieur + sécurité/PNG/JPEG/skew réussis |
-| Private real scanned BAC D transcript | FAIL initial, correction en cours | Image-only confirmé ; premier OCR privé LOW_CONFIDENCE, 32,372 s, aucune valeur devinée ; recadrage sans prérequis d’en-têtes et filtrage décoratif ajoutés |
-| Playwright / responsive | NON TESTÉ pour 5.1 | Deux scénarios adaptés : scan upload → automatique → refresh → confirmation ; rejet/remplacement automatique ; quatre largeurs et zoom CSS |
-| Confidentialité privée | PASS structurel | private-fixtures ignoré Git et deux contextes Docker ; aucune donnée réelle ajoutée ; oracle local ignoré ; lecture par bind mount read-only, pas de COPY |
-| Git | Vérifié | Diff propre ; aucun commit/push ; fichiers nouveaux/modifiés conservés dans workspace |
+| RapidOCR pour les seules cellules numériques, Tesseract pour le reste (ADR 078) | Port `CellReader` (`ifri_ocr.engines`), `OCR_RAPIDOCR_ENABLED` (défaut `true`), `rapidocr==3.10.0` + `onnxruntime==1.31.0` figés dans `uv.lock` du worker, modèle PP-OCRv6 small embarqué au build et vérifié par SHA-256, télémétrie onnxruntime coupée | pytest : activé par défaut, chiffres seuls, readiness refusant un modèle absent ou altéré, manifeste d'un seul modèle ; log du worker `engine: rapidocr` |
+| Règle par matière attendue (ADR 079) : note lue = Points ÷ Coeff → acceptée ; note illisible et Points ÷ Coeff validé par les totaux → acceptée (`POINTS_TOTALS`) ; note lisible différente → `GRADE_POINTS_MISMATCH` | Décision worker (`ifri_ocr.bac.arithmetic`) puis revérification indépendante en Go (`analysis/model.go`) ; les autres rangées ne servent qu'aux totaux ; message candidat dédié dans `AnalysisStep` | pytest et Go : erreurs compensées (deux Points faux, somme juste) jamais acceptées, y compris derrière une note illisible ou entre deux notes illisibles ; cas `d-compensated-points` et `d-grade-points-mismatch` du benchmark ; Vitest du message |
+| Reconstruction d'une seule cellule par colonne depuis le Total (ADR 080) | `RECONSTRUCTED_FROM_TOTAL`, comptée seulement si sa rangée la confirme avec des opérandes lus ; coefficient reconstruit jamais retourné ; Points reconstruits jamais seule source d'une note | pytest et Go : reconstruction valide, contredite par une autre cellule mal lue, deux cellules manquantes ; benchmark `d-faded-scale`, `d-scale-contradicted`, `d-two-scales-blank` |
+| Moyenne affichée : troncature ou arrondi à 2 décimales, rien d'autre (ADR 081) | Contrôle `displayedTotalNote` du chemin « totaux », worker et Go | pytest et Go : 9,61 et 9,62 acceptés pour 202/21, 9,60 refusé ; constat consigné dans ADMISSION_RULES comme observation sur un relevé, pas comme règle officielle |
+| Série = grande lettre isolée en haut à gauche (ADR 082) | Zone relative au tableau écrit et au titre de section, sans chercher le mot « Série » ; PSM 10, deux binarisations avec liste de séries + une lecture libre, concordantes ; illisible → non bloquant | pytest : candidat unique et isolé, zone relative ; benchmark `d-series-unprinted` (`NOT_FOUND`, non bloquant), `c-declared-d` (`SERIES_MISMATCH`) ; **relevé réel : série lue, exacte** |
 
-## Choix à mesurer
+## `make check` — 26 étapes, CHECK PASSED
 
-Stratégie scan initiale : CLAHE 300 DPI/PSM 11 pour profil et ancres ; adaptive 300 DPI/PSM 6 recadré au tableau écrit quand reconnu ; troisième passage canal de contraste 350 DPI seulement si nécessaire. Deux passages comparés avant acceptation ; conflit → LOW_CONFIDENCE. Budget commun par page et analyse, maximum trois passes, 25 M pixels. Profil BENIN_BAC_GENERAL : premier groupe écrit, oral exclu. Cette source de notes doit être confirmée avec les règles officielles IFRI.
+| Étape | Résultat | Détail |
+|---|---|---|
+| web build / typecheck / lint / format | PASS | Vite, vue-tsc, ESLint, Prettier |
+| web Vitest | PASS | 35 tests (4 fichiers), dont le message `GRADE_POINTS_MISMATCH` |
+| Go gofmt / vet (+ tag integration) / test / build (`api`, `db`, `ocrvalidate`) | PASS | Règle par matière attendue, reconstruction, moyenne affichée, erreurs compensées |
+| Python pytest (hôte) | PASS | 109 tests, 4 ignorés (bout en bout moteurs réels, exécutés dans Docker) |
+| Ruff worker + scripts | PASS | check et format |
+| Compose config (+ profil test), `git diff --check` | PASS | |
+| Stack Docker reconstruite, migrations, seed ×2 | PASS | 5 services sains ; aucune nouvelle migration |
+| Intégration Go (`references-tests`) | PASS | 180 tests et sous-tests, 0 échec |
+| smoke, références, brouillons, documents | PASS | Phases 1–4 |
+| `ocr-tests` (Docker, Tesseract + RapidOCR réels) | PASS | pytest 113/113 ; 20 fixtures génériques **identiques octet pour octet** ; benchmark BAC réaliste 18/18, 0 valeur fausse |
+| fixtures intactes | PASS | Empreinte des fixtures suivies identique avant/après `ocr-tests` |
+| `ocr_smoke` (HTTP réel) | PASS | Six couples + rejet/remplacement ; chemin BAC par cellules via API/Redis/worker/Go : `d-photo` SUCCEEDED exact (17,4 s polling inclus), relevé C déclaré D → FAILED `SERIES_MISMATCH` (10,4 s) |
+| Playwright | PASS | 2 scénarios (50,0 s) : parcours complet 4 largeurs + zoom, rejet/remplacement/nouvelle analyse |
 
-Les scores restent heuristiques. Notes et coefficients proviennent exclusivement de leurs cellules PDF ; Points et Sur servent seulement de contrôle secondaire, aucun coefficient dérivé. Preuves normalisées vers page source, avec métadonnées de profil/section/variant/DPI/PSM/deskew validées côté Go. Aucune migration modifiée ni nouvelle table.
+### Correctif de clôture : healthcheck du worker
 
-## Validation hôte, séparément et arrêt au premier échec
+Le premier `make check` après l'adoption de RapidOCR a échoué au smoke : `ocr-worker` était `unhealthy`, et son healthcheck dépassait la limite de 5 s. Cause mesurée : l'image ne contenait aucun bytecode Python (0 `.pyc` pour 1 514 modules du venv, 3 pour 1 062 modules de la bibliothèque standard). Avec le système de fichiers en lecture seule et `PYTHONDONTWRITEBYTECODE=1`, chaque processus recompilait ses imports : 2,2 s pour `import ifri_ocr.worker` au repos, plus de 15 s sous la charge de `make check`. Les sous-processus d'analyse payaient la même recompilation (numpy, OpenCV, RapidOCR).
 
-Depuis la racine :
+Correctif dans `services/ocr/Dockerfile` : `UV_COMPILE_BYTECODE=1` pour le venv et `compileall` pour la bibliothèque standard, au build. Mesure : import en 0,29 s au lieu de 2,2 s ; image de 1,07 à 1,14 Go. Aucun changement de code ni de configuration d'exécution. `make check` complet vert ensuite.
 
-```sh
-docker compose up -d --build --wait --wait-timeout 240
-docker compose --profile test run --build --rm references-tests
-docker compose --profile test run --build --rm ocr-tests
-```
+## Benchmark synthétique BAC réaliste (critère : 0 valeur fausse)
 
-Le profil OCR exécute pytest, le corpus synthétique précédent puis le benchmark fond de sécurité/sections/PNG/JPEG/skew. Il compare aussi cinq prétraitements et PSM 6/11 à 300 DPI, ainsi que 200/300/350/400 DPI. Résultats publics synthétiques dans fixtures/scan-benchmark.json. Ces essais de calibration ne sont pas tous exécutés dans le worker produit.
+18 cas (OCR_BENCHMARK §B) : scans, photos inclinées, séries C/D/E, colonnes sans filets, série absente, série contredite, note illisible validée par les totaux, Total faux, note contredite par Points, **erreurs compensées**, reconstruction valide, deux Sur manquantes, reconstruction contredite, rangée dupliquée, matière absente, PDF natif.
 
-Si succès :
+| Lecteur de chiffres | Résultat |
+|---|---|
+| RapidOCR (production, dans `make check`) | 18/18 statuts attendus, **0 valeur fausse acceptée**, 6,6–8,3 s par page |
+| Tesseract (`OCR_RAPIDOCR_ENABLED=false`) | 18/18 statuts attendus, **0 valeur fausse acceptée**, 7,7–9,9 s par page |
 
-```sh
-uv run --project services/ocr --locked --no-sync python infra/scripts/smoke.py
-uv run --project services/ocr --locked --no-sync python infra/scripts/ocr_smoke.py
-npm --prefix apps/web run test:browser
-uv run --project services/ocr --locked --no-sync python infra/scripts/ocr_private_run.py
-docker compose ps --all
-```
+## Relevé réel privé (BAC D scanné, budget de production 30 s)
 
-La dernière calibration ne s’exécute que si le PDF réel local et oracle.json ignorés sont présents ; sinon NON TESTÉ sans bloquer les suites synthétiques. Aucune identité, texte OCR intégral ou hash privé émis. Pas de prétention production-ready sur une fixture réelle unique.
+`make ocr-private` (moteur de production) et `make ocr-private ARGS="--numeric-engine tesseract"`, validés par Go via `cmd/ocrvalidate`. Rapport anonyme, détail dans OCR_BENCHMARK §C.
 
-Une validation sur un corpus anonymisé de relevés réels représentant les différents formats BAC/DT est nécessaire avant mise en production.
+| Indicateur | Audit initial | Clôture précédente | **Clôture (RapidOCR)** |
+|---|---|---|---|
+| Statut | — | LOW_CONFIDENCE `NEEDS_REVIEW` | LOW_CONFIDENCE `GRADE_POINTS_MISMATCH` |
+| **Valeurs fausses acceptées** | — | 0 | **0** (Tesseract : 0) |
+| Libellés reconnus | 1/7 | 7/7 | 7/7 |
+| Série | non lue | non lue | **lue, exacte** |
+| Coefficients validés | 3/7 | 3/7 | 6/7 (Tesseract : 3/7) |
+| Produits Points = Note × Coeff | 2/7 | 5/7 | 5/7 |
+| Rangées attendues validées exactement | — | 0/3 | **2/3** (Tesseract : 0/3) |
+| Durée par page | 28,7 s (budget 120 s) | 16,0 s | 13,0 s (budget 30 s) |
 
+Le relevé n'est pas accepté. Deux matières attendues sont prouvées par leur rangée. La troisième note est mal lue par l'OCR : Points ÷ Coeff la contredit, et la règle ADR 079 la refuse au lieu de l'accepter. Le relevé part donc en revue documentaire, sans aucune valeur fausse. La colonne Sur ne totalise pas, parce qu'une valeur y est lue fausse (et non illisible) : aucune reconstruction ne s'applique. Le relevé réel reste un objectif, pas un critère bloquant.
 
-## Première validation hôte de 5.1
+## Critères de sortie (ROADMAP)
 
-Rebuild et services healthy PASS. Suite references-tests entièrement PASS (PostgresAnalysis, documents/qpdf, sessions, référentiels et S3 privé). Pytest Docker : 43 PASS en 11,01 s. Six textes nominaux : 0,005–0,016 s ; six scans : 2,662–4,306 s, valeurs exactes. Cas dégradé/mauvais ensemble LOW_CONFIDENCE, ambiguïté toujours refusée.
+| Critère | État |
+|---|---|
+| Plus de bouton, 5 étapes, analyse dans la carte du relevé | ✅ Vitest + Playwright |
+| Upload/remplacement → analyse automatique ; refresh → restauration + polling | ✅ Playwright, ocr_smoke |
+| Profil `BENIN_BAC_GENERAL` : section écrite, grille de cellules, ligne Total | ✅ 18 cas synthétiques, dont 2 de bout en bout HTTP |
+| Règle par matière attendue, reconstruction, moyenne affichée, série (ADR 079–082) | ✅ pytest, Go, benchmark ; revérifié par Go |
+| 0 valeur fausse acceptée : benchmark synthétique | ✅ 0 (deux moteurs) |
+| 0 valeur fausse acceptée : relevé réel privé | ✅ 0 (deux moteurs), mais corpus = 1 relevé |
+| Relevé réel lu entièrement | ⏳ objectif non bloquant : 2/3 rangées attendues |
+| Corpus réel ≥ 10 relevés anonymisés | ❌ réserve avant production ; harnais prêt |
+| `make check` vert | ✅ |
 
-Sécurité/sections synthétiques : texte 0,021 s ; PNG 5,038 s ; JPEG avec éclairage 5,768 s ; skew 5,985 s, toutes valeurs exactes. PSM 6 lit les cellules pour les cinq prétraitements à 300 DPI ; PSM 11 échoue sur les cellules mais repère les ancres pour le recadrage. Étude PSM 11 à 200/300/350/400 DPI : toutes GRADE_NOT_FOUND ; augmenter la résolution seule ne résout pas la segmentation. Les mesures de cette itération ne prouvent pas la prochaine correction ni une précision réelle.
+## Confidentialité
 
-PDF privé localisé hors workspace puis référencé par lien ignoré, sans copie de ses octets. Montage du fichier résolu et de l’oracle uniquement en lecture seule. Une page, aucun mot natif, une image ; préparation locale 300 DPI : pas de perspective signalée ni de rotation appliquée. Premier OCR privé : section BAC écrite reconnue, aucune matière extraite ; second passage non recadré et budget page épuisé avant troisième essai. Correction : bounds de section indépendantes des en-têtes ; recadrage dès ancres crédibles ; retrait des glyphes >2,5×hauteur médiane avant lignes/ancres. Test de régression décoratif ajouté, 44 tests locaux PASS. Diagnostics privés supplémentaires limités à identifiants canoniques, scores et géométrie, jamais texte brut.
+- Le relevé et son oracle restent ignorés par Git et par les contextes Docker. Ils sont montés en lecture seule sous un nom anonyme (`doc-N`).
+- Les rapports ne contiennent que des issues par champ (EXACT / FALSE / MISSING), des décisions, des statuts, de la géométrie et des durées : aucun nom, aucune valeur, aucun texte OCR brut.
+- Les rapports temporaires de cette exécution sont dans le scratchpad de session, hors dépôt. Aucune image de debug n'a été produite (`--keep-debug` non utilisé).
 
-Le lanceur privé reconstruit explicitement l’image de calibration avant l’exécution, pour ne pas tester une ancienne image. Build worker : dépendances verrouillées installées avant COPY src afin de les conserver en cache pendant la calibration ; runtime et versions inchangés.
+## Limites et suite
 
-### Deuxième calibration privée — encore en échec
-
-Résultat transmis depuis Docker : LOW_CONFIDENCE, aucune matière acceptée, 28,506 s. Le recadrage fonctionne : CLAHE 300/PSM11 8,338 s, adaptive 300/PSM6 recadré 4,541 s, canal couleur 350/PSM6 recadré 14,782 s. Les en-têtes candidats ne forment pas encore un tableau cohérent. Aucun seuil abaissé ni valeur forcée. Une évaluation locale séparée Otsu/grayscale à 300 DPI PSM6 est disponible via `ocr_private_run.py --evaluate` ; elle ne modifie pas le plan de production et ne publie aucun texte OCR brut. La phase reste non terminée.
-
-### Calibration recadrée — variantes insuffisantes
-
-Mesures privées transmises : grayscale 3,875 s, adaptive 3,652 s, normalisation du fond 8,325 s, tous SUBJECT_NOT_FOUND sans résultat accepté. Adaptive reconnaît deux libellés attendus mais avec confiance OCR insuffisante ; aucune valeur forcée. Le prochain essai expérimental compare PSM6/11 après sélection du canal le plus clair, normalisation locale et retrait ciblé des longues lignes de grille. Cette variante `security-table` reste hors du plan de production tant que son gain et sa régression ne sont pas mesurés.
-
-### Traitement ciblé du tableau — encore insuffisant
-
-Calibration privée : security-table à 300 DPI PSM6 6,075 s, PSM11 6,093 s. Aucun résultat accepté. PSM6 reconnaît les trois libellés mais leur confiance reste insuffisante (0,395–0,485). Le prochain essai hors production détecte les lignes verticales longues puis OCRise séparément les bandes de colonnes ; les mots sont remappés avant reconstruction des lignes et extraction. Aucun axe X ni résultat numérique privé n'est codé en dur. Tests locaux : 47 Python PASS.
-
-### Stratégie BAC général par cellules — correction demandée
-
-La stratégie active pour les scans BAC général remplace les essais OCR globaux par : correction géométrique prudente (contour de page quadrilatéral crédible, puis deskew), binarisation du canal V HSV (= max RGB), ancres du premier groupe écrit et Total écrit, reconstruction morphologique d'une grille de cinq colonnes fixes, OCR PSM7 de chaque cellule agrandie ×3. Whitelist numérique `0123456789,.`. Les en-têtes OCR ne déterminent plus les colonnes. Les tables sans séparateurs horizontaux internes utilisent les bandes de texte numérique pour reconstruire les séparations ; une géométrie ou des cellules incohérentes imposent NEEDS_REVIEW. Les profils génériques conservent leur chemin existant.
-
-La liste fermée documentaire des matières BAC sert au matching ; elle ne remplace pas le snapshot des matières d'admission. Notes et coefficients viennent toujours de leurs propres cellules. Points = note × coefficient et Sur = 20 × coefficient sont vérifiés exactement sur chaque ligne, puis les sommes coefficient/points/Sur sont comparées au Total écrit. La note récapitulative imprimée peut être arrondie ou tronquée au centième : contrôle secondaire avec tolérance `0,01 × coefficient total` ; aucun résultat de moyenne d'admission n'est créé.
-
-Sur demande explicite de l'utilisateur, ces preuves arithmétiques remplacent le seuil Tesseract **uniquement pour ce profil**. Les confiances réelles restent présentes. Go revérifie indépendamment les produits, sommes, ligne sélectionnée et bornes de valeurs avec `big.Rat` avant acceptation d'une extraction à faible confiance. Les lignes incohérentes portent NEEDS_REVIEW dans le diagnostic ; le résultat conserve l'état terminal existant LOW_CONFIDENCE avec failureCode NEEDS_REVIEW, afin de ne pas inventer un circuit administratif de phase 6.
-
-Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs parsées, contrôles par ligne, contrôles des totaux et série. Aucun en-tête d'identité, texte de page complet, hash ou PDF n'est exporté. Calibration via `ocr_private_run.py` ; l'ancien argument `--evaluate` utilise désormais la même stratégie, sans matrice de variantes. Les anciens benchmarks sont historiques et ne valident pas ce nouveau chemin. Test réel et régression Docker restent à mesurer. RapidOCR sera évalué sur les mêmes cellules seulement si la lecture numérique reste insuffisante, après vérification de compatibilité Python 3.14.
-
-Contrôles locaux de la nouvelle stratégie : 56 tests Python PASS ; Ruff PASS ; Go `test ./...`, `vet ./...` et gofmt PASS (intégrations externes non exécutées ici). Les nouveaux tests vérifient le canal V, la grille sans en-têtes OCR, PSM7/whitelist/agrandissement, les lignes et totaux incohérents, ainsi que le refus en Go des preuves arithmétiques incomplètes malgré une faible confiance OCR. Le scan privé doit maintenant être réévalué via Docker ; aucun succès réel n'est déclaré.
-
-### Correction de segmentation des rangées
-
-Dernier run privé Docker : NEEDS_REVIEW, 18,054 s, deux lignes et cellules vides. Correction : les rangées ne dépendent plus des traits horizontaux ; projection de l'encre dans la colonne Matière après filtrage des motifs et bandes trop courtes selon la hauteur des caractères. La grille conserve la détection morphologique des vrais traits verticaux. Nombre plausible : 5 à 12 rangées de données, sinon ROW_SEGMENTATION_FAILED avant OCR. Ce motif est accepté par Go comme résultat LOW_CONFIDENCE terminal, sans retry technique.
-
-Chaque crop a largeur/hauteur en pixels, proportion de pixels noirs, polarité et éventuel motif vide/timeout. La série est lue séparément, sur une petite zone à droite de son ancre en haut à gauche, whitelist ABCDE. Les images privées de debug (section, overlay des colonnes/bandes, crops avant/après agrandissement) sont écrites uniquement lors de la calibration dans un répertoire `/tmp/ifri-ocr-private-debug-*`, monté en écriture ; aucun fichier privé ne rejoint le dépôt ni le build Docker.
-
-Vérification locale de segmentation sur une zone de tableau sélectionnée pour le diagnostic, sans Tesseract : 8 rangées de données, 40 crops non vides, dimensions minimales 196 × 42 pixels, proportion noire 0,0197 à 0,799. Ces mesures ne prouvent pas encore la localisation automatique ni la lisibilité OCR ; le nouveau run Docker reste nécessaire.
-
-### Bordures, colonnes et budget de calibration
-
-La sélection des colonnes est ancrée aux extrémités du premier trait horizontal long du tableau. Six axes sont recherchés à l'intérieur de cette bordure, près des ratios du profil stable : 0 / 0,535 / 0,645 / 0,755 / 0,89 / 1. Un axe absent ou décalé déclenche le fallback de ratios, jamais une translation silencieuse des cinq colonnes. Matière est nettement plus large ; Points est légèrement plus large que Note/Coeff/Sur. Un tableau sans bordure crédible renvoie COLUMN_SEGMENTATION_FAILED.
-
-Otsu est calculé sur le canal V de chaque crop, avec marge intérieure de 8 pixels sur X et 5 sur Y pour exclure les traits. Les temps par cellule sont consignés. La boucle s'arrête dès reconnaissance du libellé Total ; aucune rangée orale n'est ajoutée. La calibration privée seule dispose de 120 secondes par page ; le budget production reste inchangé. Le prochain benchmark devra comparer ce coût à cinq appels Tesseract par bandes de colonnes PSM6 (numériques avec whitelist), sur les mêmes limites et contrôles, avant tout changement de stratégie production.
-
-Règle d'acceptation mise à jour sur instruction utilisateur : Note et Coeff sont obligatoires ; Sur doit être lisible et égal à 20 × Coeff. Points peut être illisible (diagnostic `null` pour ce contrôle), mais une valeur lisible contradictoire bloque la ligne. Go applique la même règle, conserve Points manquant sans fabriquer de valeur extraite et vérifie les sommes contre les totaux lisibles. Les produits calculés sont exclusivement des contrôles documentaires.
-
-Le run privé précédent reste en échec : 31,193 s, colonnes décalées, budget épuisé. La vérification locale sur la zone de tableau diagnostique retrouve 8 rangées et des largeurs relatives 53/11/11/13/11 %, sans succès OCR déclaré. Le nouveau run automatique Docker reste à effectuer.
-
-### Règle d'acceptation corrigée — prioritaire sur la règle précédente
-
-Sur = 20 × Coeff valide uniquement le coefficient. Une note exige Points = Note × Coeff sur sa ligne, OU les deux sommes exactes Σ Note×Coeff = Total Points et Σ Coeff = Total Coeff. Points illisible ne valide donc plus une note sans totaux. Points lisible contradictoire reste bloquant. Les statuts `coefficientStatus` et `gradeStatus` sont séparés ; validation par ligne ou par totaux explicitée. Go vérifie la preuve décimale indépendamment et exige des totaux Points lisibles pour l'acceptation du dossier. Coeff entier 1..6 ; Sur multiple de 20 cohérent ; Note 0..20. Aucun seuil de confiance ne supplée un contrôle arithmétique manquant.
-
-La limite physique de l'en-tête est exclue avant la projection des rangées, avec marge intérieure de 5 px sur X / 4 px sur Y. Le traitement effectif de chaque cellule est loggé : HSV_V_CELL_OTSU ; pour Points trop noir (>45 %), RED_CELL_CLAHE_OTSU. Cette décision utilise la densité du crop, pas ses valeurs attendues. Le TSV d'un seul appel fournit texte et confiance : seuls les mots level=5, confidences négatives ignorées et comptées, confiance moyenne des mots restants, véritables zéros conservés.
-
-Dernier scan privé Docker : 36,864 s, NEEDS_REVIEW, aucune extraction complète acceptée, Total et série encore illisibles. Il ne valide pas la nouvelle correction. Les contrôles locaux et le run privé suivant restent distincts.
-
-### Borne du premier tableau écrit — non-régression
-
-Le run privé précédent (12,611 s, ROW_SEGMENTATION_FAILED) incluait le tableau EPS dans les bandes. Les bandes sont désormais regroupées par écarts : un saut supérieur à 2,5 × l'écart médian ouvre un autre tableau ; seul le premier tableau après le titre écrit est retenu. L'écart en-tête/première matière n'est pas une coupure de tableau. Le séparateur d'en-tête est recherché exclusivement entre la bande d'en-tête et la première bande de données. L'OCR s'arrête au Total écrit inclus, sans nombre de matières fixé selon une série.
-
-Tests : bornes transmises (en-tête + 7 matières + Total + EPS), exemple plus court à nombre variable, et image synthétique à deux tableaux largement séparés. Suite Python : 66 PASS. Les règles de preuve de note par Points/totaux, contraintes de coefficient, Otsu par cellule avec fallback rouge pour Points, et confiance du même TSV restent inchangées et couvertes. Aucun nouveau résultat OCR privé n'est déclaré avant relance Docker.
-
-### Correction documentaire : notes dérivées exclusivement après trois totaux
-
-Instruction utilisateur prioritaire : quand Σ Coeff, Σ Points et Σ Sur lus correspondent tous aux cellules Total, la valeur retenue de chaque note est Points ÷ Coeff, avec `gradeStatus=VALIDATED_BY_TOTALS` et `gradeSource=POINTS_TOTALS`. La lecture brute/directe et sa divergence restent conservées. Coeff n'est jamais dérivé. Une somme fausse ou incomplète garde toutes les lignes en NEEDS_REVIEW. Les décimales non terminantes ne sont ni arrondies ni inventées. Go autorise une divergence note brute/valeur retenue uniquement pour ce mode avec preuve complète indépendante en rationnels exacts et coordonnées Points/Sur ; les autres extractions gardent l'égalité lecture brute/valeur. Aucun calcul de moyenne d'admission n'est introduit.
-
-Parseur : virgule décimale et séparateur final isolé acceptés (`18.`, `80 .`), sans assembler des chiffres séparés. Le contrôle Sur/Coeff ne dépend plus de la lisibilité de Note. Les noyaux morphologiques longs suppriment les traits sur chaque cellule avant agrandissement ; les crops de données ont une marge symétrique autour de leur propre bande, y compris Anglais, sans remonter à l'en-tête. Seuils de confiance inchangés.
-
-Dernier run privé : 40,398 s, NEEDS_REVIEW, 8 rangées correctement isolées ; les notes et totaux restent insuffisants. La nouvelle correction attend son run OCR réel. Validation locale avant relance : 74 tests Python et Go tests PASS ; aucune précision réelle déclarée acquise.
+- Une seule mesure réelle : aucune précision de production n'est revendiquée. Le corpus de 10 relevés ou plus (BAC C, D, E, DT) dépend de l'IFRI.
+- La lecture complète du relevé réel bute sur deux cellules lues fausses (une note, une valeur Sur). Il faut d'autres relevés pour savoir si c'est propre à ce scan ou systématique.
+- Le banc séparé de l'étude RapidOCR a été retiré du dépôt ; son image Docker locale (`ifri-admissions-ocr-rapidocr-bench`) peut être supprimée à la main.
+- Commit des changements 5.1 à faire par l'utilisateur.

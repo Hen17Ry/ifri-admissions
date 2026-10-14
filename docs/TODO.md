@@ -110,28 +110,23 @@ Aucune moyenne, soumission, numéro officiel, administration ou classement autor
 Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit accessibilité approfondi et CI dédiée restent à traiter.
 
 
-## Phase 5.1 — corrective en validation
+## Phase 5.1 — clôturée (14 octobre 2026), réserve corpus réel avant production
 
 - [x] Supprimer bouton OCR et étape séparée ; intégrer analyse et confirmation dans Documents.
 - [x] Conserver déclenchement transactionnel existant, gating backend et historique/version exacts.
-- [x] Reprendre polling à la restauration et nouvelle version ; suspendre pendant mutation locale.
-- [x] Ajouter profils, sélection écrit/oral, colonnes, contrôle secondaire et désaccord multipass.
-- [x] Ajouter variantes scan/deskew/géométrie et limites, dépendances verrouillées sur l’hôte.
-- [x] Ignorer corpus privé dans Git et contextes Docker ; préparer commande locale read-only.
-- [ ] Exécuter nouveau benchmark Tesseract réel synthétique scan/photo et comparer variantes.
-- [ ] Exécuter scan réel privé si disponible ; ne déclarer aucune précision de production.
-- [ ] Rebuild Docker et régression Redis/S3/HTTP complète.
-- [ ] Exécuter Playwright analyse automatique/refresh/rejet/remplacement aux quatre largeurs.
-- [ ] Finaliser PHASE5_1_VALIDATION à partir des sorties réelles.
+- [x] Reprendre polling à la restauration et nouvelle version ; arrêt borné avec message et actualisation manuelle.
+- [x] Niveau 1 : Ruff vert ; `ocr-tests` n'écrit plus dans le dépôt (génération déterministe + comparaison octet par octet) ; contrainte 5–12 rangées remplacée par en-tête + N ≥ 1 + Total ; `make check`.
+- [x] Niveau 2 : série lue/comparée (`SERIES_MISMATCH`, illisible non bloquante) ; unicité des rangées côté worker et Go ; résultat refusé par Go → `FAILED/RESULT_REJECTED` journalisé, acquitté, affiché immédiatement.
+- [x] Niveau 3 : chiffres sur toutes les rangées, libellés seulement pour l'attribution (hongroise, écart minimal) ; recadrage encre + 3 binarisations ; fond aplati ; glyphes normalisés ; lecture en deux temps parallélisée.
+- [x] Niveau 4 : générateur BAC synthétique réaliste validé de bout en bout (12 cas, 18 avec les cas des ADR 079–082) ; harnais privé `<nom>.expected.json` + validation Go + rapport anonyme ; debug supprimé sauf `--keep-debug`.
+- [x] RapidOCR adopté pour les seules cellules numériques (ADR 078) : port `CellReader`, `OCR_RAPIDOCR_ENABLED` (défaut `true`), versions figées dans le runtime du worker, modèle épinglé par SHA-256, télémétrie onnxruntime coupée, readiness mise à jour ; image de banc supprimée.
+- [x] Règle d'acceptation par matière attendue (ADR 079) : note lue = Points ÷ Coeff, ou note illisible + totaux vérifiés et autres rangées confirmées ; `GRADE_POINTS_MISMATCH` ; tests d'erreurs compensées (worker et Go).
+- [x] Reconstruction d'une cellule par colonne depuis le Total (ADR 080), tests : reconstruction valide, contredite, deux cellules manquantes.
+- [x] Moyenne affichée : troncature ou arrondi à 2 décimales (ADR 081), constat consigné dans ADMISSION_RULES.
+- [x] Série : grande lettre isolée en haut à gauche, zone relative au tableau (ADR 082) ; lue « D » exacte sur le relevé réel.
+- [x] Harnais privé et benchmark synthétique relancés : 0 valeur fausse acceptée (18/18 synthétiques ; réel : 2 matières sur 3 validées exactes par leur rangée, la 3ᵉ en revue).
+- [x] Healthcheck du worker trop lent sous charge : bytecode Python précompilé au build (`UV_COMPILE_BYTECODE=1` + `compileall`), import 2,2 s → 0,29 s.
+- [ ] **Avant production** : corpus réel ≥ 10 relevés anonymisés (BAC C, D, E, DT) — dépend de l'IFRI ; seul 1 relevé disponible.
+- [ ] Commit des changements 5.1 (aucun commit effectué par l'agent).
 
 Aucune phase 6 autorisée.
-
-### Stratégie BAC général par cellules — correction demandée
-
-La stratégie active pour les scans BAC général remplace les essais OCR globaux par : correction géométrique prudente (contour de page quadrilatéral crédible, puis deskew), binarisation du canal V HSV (= max RGB), ancres du premier groupe écrit et Total écrit, reconstruction morphologique d'une grille de cinq colonnes fixes, OCR PSM7 de chaque cellule agrandie ×3. Whitelist numérique `0123456789,.`. Les en-têtes OCR ne déterminent plus les colonnes. Les tables sans séparateurs horizontaux internes utilisent les bandes de texte numérique pour reconstruire les séparations ; une géométrie ou des cellules incohérentes imposent NEEDS_REVIEW. Les profils génériques conservent leur chemin existant.
-
-La liste fermée documentaire des matières BAC sert au matching ; elle ne remplace pas le snapshot des matières d'admission. Notes et coefficients viennent toujours de leurs propres cellules. Points = note × coefficient et Sur = 20 × coefficient sont vérifiés exactement sur chaque ligne, puis les sommes coefficient/points/Sur sont comparées au Total écrit. La note récapitulative imprimée peut être arrondie ou tronquée au centième : contrôle secondaire avec tolérance `0,01 × coefficient total` ; aucun résultat de moyenne d'admission n'est créé.
-
-Sur demande explicite de l'utilisateur, ces preuves arithmétiques remplacent le seuil Tesseract **uniquement pour ce profil**. Les confiances réelles restent présentes. Go revérifie indépendamment les produits, sommes, ligne sélectionnée et bornes de valeurs avec `big.Rat` avant acceptation d'une extraction à faible confiance. Les lignes incohérentes portent NEEDS_REVIEW dans le diagnostic ; le résultat conserve l'état terminal existant LOW_CONFIDENCE avec failureCode NEEDS_REVIEW, afin de ne pas inventer un circuit administratif de phase 6.
-
-Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs parsées, contrôles par ligne, contrôles des totaux et série. Aucun en-tête d'identité, texte de page complet, hash ou PDF n'est exporté. Calibration via `ocr_private_run.py` ; l'ancien argument `--evaluate` utilise désormais la même stratégie, sans matrice de variantes. Les anciens benchmarks sont historiques et ne valident pas ce nouveau chemin. Test réel et régression Docker restent à mesurer. RapidOCR sera évalué sur les mêmes cellules seulement si la lecture numérique reste insuffisante, après vérification de compatibilité Python 3.14.

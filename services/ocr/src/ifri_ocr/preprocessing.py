@@ -47,6 +47,7 @@ def prepare(rgb: np.ndarray) -> PreparedScan:
         raise ValueError("Pixel limit exceeded")
     original_h, original_w = h, w
     perspective_matrix = np.eye(3)
+    page_angle = None
     # Correct only a large, convex four-corner document boundary; no portrait/table warp.
     edge_image = cv2.Canny(cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY), 60, 160)
     contours, _ = cv2.findContours(edge_image, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
@@ -80,6 +81,12 @@ def prepare(rgb: np.ndarray) -> PreparedScan:
             max(upper, lower) / min(upper, lower) <= 1.03
             and max(left, right) / min(left, right) <= 1.03
         ):
+            # Nearly rectangular page photographed at an angle: its own border gives the tilt,
+            # more reliably than content lines bent by a slight perspective.
+            top = degrees(atan2(ordered[1][1] - ordered[0][1], ordered[1][0] - ordered[0][0]))
+            bottom = degrees(atan2(ordered[2][1] - ordered[3][1], ordered[2][0] - ordered[3][0]))
+            if abs(top - bottom) <= 1.0:
+                page_angle = (top + bottom) / 2
             break
         perspective_matrix = cv2.getPerspectiveTransform(
             ordered, np.array([[0, 0], [w - 1, 0], [w - 1, h - 1], [0, h - 1]], np.float32)
@@ -106,6 +113,8 @@ def prepare(rgb: np.ndarray) -> PreparedScan:
     )
     # Perspective or nonparallel lines: refuse rather than silently flattening a complex photograph.
     perspective = len(angles) >= 4 and dispersion > 4
+    if page_angle is not None and not perspective:
+        angle, dispersion = page_angle, 0.0
     matrix = np.eye(3)
     if not perspective and 0.3 <= abs(angle) <= 5 and dispersion < 1.5:
         matrix[:2] = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)

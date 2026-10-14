@@ -99,3 +99,52 @@ def test_process_timeout_is_bounded_and_reports_safe_code(monkeypatch):
     assert process(job, api, 0.05, 0.85)
     assert api.results[0]["failureCode"] == "ANALYSIS_TIMEOUT"
     assert api.results[0]["subjects"] == []
+
+
+def test_result_refused_by_api_is_acknowledged_not_replayed():
+    content, job = native_job()
+
+    class Refusing(API):
+        def request(self, identity, action, data=None):
+            if action == "result":
+                self.results.append(data)
+                raise RuntimeError("INTERNAL_HTTP_422")
+            return super().request(identity, action, data)
+
+    api = Refusing(content)
+    assert process(job, api, 30, 0.85)  # ACK: Go already marked the analysis FAILED.
+    assert len(api.results) == 1
+
+
+def test_transient_api_error_keeps_job_pending():
+    import pytest
+
+    content, job = native_job()
+
+    class Unavailable(API):
+        def request(self, identity, action, data=None):
+            if action == "result":
+                raise RuntimeError("INTERNAL_HTTP_503")
+            return super().request(identity, action, data)
+
+    with pytest.raises(RuntimeError):
+        process(job, Unavailable(content), 30, 0.85)
+
+
+def test_declared_qualification_reaches_the_runner(monkeypatch):
+    import subprocess as real
+
+    from ifri_ocr import jobs
+
+    content, job = native_job()
+    job["qualificationCode"] = "BAC_D"
+    seen = {}
+    original = real.Popen
+
+    def spy(command, **kwargs):
+        seen.update(json.loads(open(command[4]).read()))
+        return original(command, **kwargs)
+
+    monkeypatch.setattr(jobs.subprocess, "Popen", spy)
+    assert process(job, API(content), 30, 0.85)
+    assert seen["qualificationCode"] == "BAC_D" and len(seen["expectedSubjects"]) == 3

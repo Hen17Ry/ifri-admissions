@@ -45,6 +45,8 @@ def number(text: str) -> Decimal | None:
 class OcrEngine(Protocol):
     name: str
     version: str
+    # Table cell reader of the BAC profile (ifri_ocr.engines.CellReader).
+    cells: object
 
     def extract(self, image: Path, width: int, height: int, timeout: int) -> list[Token]: ...
 
@@ -52,10 +54,16 @@ class OcrEngine(Protocol):
 class Tesseract:
     name = "tesseract"
 
-    def __init__(self, psm: int = 6):
-        if psm not in {6, 11}:
-            raise ValueError("Unsupported page segmentation mode")
+    def __init__(self, psm: int = 6, languages: str = "fra+eng", cells=None):
+        if psm not in {6, 11} or languages not in {"fra+eng", "fra", "eng"}:
+            raise ValueError("Unsupported page segmentation mode or languages")
         self.psm = psm
+        self.languages = languages
+        if cells is None:
+            from ifri_ocr.engines import TesseractCells
+
+            cells = TesseractCells()
+        self.cells = cells
 
     @property
     def version(self) -> str:
@@ -66,7 +74,16 @@ class Tesseract:
 
     def extract(self, image: Path, width: int, height: int, timeout: int) -> list[Token]:
         result = subprocess.run(
-            ["tesseract", str(image), "stdout", "-l", "fra+eng", "--psm", str(self.psm), "tsv"],
+            [
+                "tesseract",
+                str(image),
+                "stdout",
+                "-l",
+                self.languages,
+                "--psm",
+                str(self.psm),
+                "tsv",
+            ],
             capture_output=True,
             timeout=timeout,
             check=True,
@@ -296,6 +313,7 @@ def analyze(
     page_timeout: int = 30,
     max_pages: int = 10,
     diagnostics: list | None = None,
+    qualification: str | None = None,
 ) -> dict:
     import pymupdf
 
@@ -330,7 +348,14 @@ def analyze(
                 from ifri_ocr.scans import extract_scan
 
                 subjects, issue = extract_scan(
-                    page, expected, engine, minimum, page_timeout, index + 1, diagnostics
+                    page,
+                    expected,
+                    engine,
+                    minimum,
+                    page_timeout,
+                    index + 1,
+                    diagnostics,
+                    qualification,
                 )
                 used_ocr = True
             else:
@@ -339,8 +364,19 @@ def analyze(
             if issue and issue != "SUBJECT_NOT_FOUND":
                 failure = issue
     ids = [s["subjectId"] for s in all_subjects]
-    if len(ids) != len(set(ids)):
-        failure = "AMBIGUOUS_ROW"
+    # Two expected subjects can never be read from the same table row.
+    rows = [(s["pageNumber"], tuple(sorted(s["evidence"]["grade"].items()))) for s in all_subjects]
+    cell_rows = [
+        (s["pageNumber"], s["evidence"]["arithmeticRowIndex"])
+        for s in all_subjects
+        if "arithmeticRowIndex" in s["evidence"]
+    ]
+    if (
+        len(ids) != len(set(ids))
+        or len(rows) != len(set(rows))
+        or len(cell_rows) != len(set(cell_rows))
+    ):
+        failure = failure or "AMBIGUOUS_ROW"
     if failure:
         return failed(failure)
     if set(ids) != {s["id"] for s in expected}:
@@ -350,12 +386,19 @@ def analyze(
         for s in all_subjects
     ):
         return failed("LOW_CONFIDENCE")
+    name, version = (engine.name, engine.version) if used_ocr else ("pymupdf", None)
+    cells = getattr(engine, "cells", None)
+    # Provenance names the cell reader only when it actually read the accepted values.
+    if any(s["evidence"].get("validation") == "CELL_ARITHMETIC" for s in all_subjects) and (
+        cells is not None and cells.name != engine.name
+    ):
+        name, version = f"{name}+{cells.name}", f"{version}; {cells.version}"[:100]
     return {
         "contractVersion": 1,
         "pageCount": page_count,
         "status": "SUCCEEDED",
-        "engine": engine.name if used_ocr else "pymupdf",
-        "engineVersion": (engine.version if used_ocr else "pymupdf " + pymupdf.VersionBind),
+        "engine": name,
+        "engineVersion": version or "pymupdf " + pymupdf.VersionBind,
         "failureCode": "",
         "subjects": sorted(all_subjects, key=lambda s: s["position"]),
     }
@@ -368,6 +411,7 @@ def failed(code: str) -> dict:
         if code
         in {
             "AMBIGUOUS_ROW",
+            "GRADE_POINTS_MISMATCH",
             "LOW_CONFIDENCE",
             "NEEDS_REVIEW",
             "ROW_SEGMENTATION_FAILED",

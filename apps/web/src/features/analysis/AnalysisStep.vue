@@ -20,7 +20,9 @@ const announcement = computed(() => {
     return 'Analyse de votre relevé en cours.'
   if (analysis.value.candidateConfirmation === 'REJECTED')
     return 'Un nouveau relevé est nécessaire.'
-  if (analysis.value.failureCode === 'NEEDS_REVIEW')
+  if (analysis.value.failureCode === 'SERIES_MISMATCH')
+    return 'La série du relevé ne correspond pas à votre déclaration.'
+  if (['NEEDS_REVIEW', 'GRADE_POINTS_MISMATCH'].includes(analysis.value.failureCode ?? ''))
     return 'Certaines informations du relevé nécessitent une vérification.'
   if (analysis.value.status !== 'SUCCEEDED')
     return 'Nous n’avons pas pu lire correctement votre relevé.'
@@ -28,9 +30,24 @@ const announcement = computed(() => {
     ? 'Informations du relevé confirmées.'
     : 'Analyse terminée. Les informations détectées sont à vérifier.'
 })
+// Codes from the API; texts stay in French on the client, without technical detail.
+const failureHints: Record<string, string> = {
+  SERIES_MISMATCH:
+    'La série indiquée sur ce relevé ne correspond pas à celle déclarée dans « Votre parcours ». Corrigez votre parcours ou fournissez le relevé correspondant.',
+  RESULT_REJECTED:
+    'Les informations lues sur ce relevé n’ont pas passé nos contrôles. Fournissez une version plus nette du document.',
+  AMBIGUOUS_ROW:
+    'Une matière recherchée apparaît de façon ambiguë sur le relevé et ne peut pas être retenue automatiquement.',
+  NEEDS_REVIEW:
+    'Certaines lignes du relevé ne passent pas les contrôles de cohérence. Leurs valeurs ne peuvent pas être confirmées.',
+  GRADE_POINTS_MISMATCH:
+    'Pour une matière recherchée, la note lue ne correspond pas aux points indiqués sur la même ligne. Fournissez une version plus nette du relevé.',
+}
+const failureHint = computed(() => failureHints[analysis.value?.failureCode ?? ''] ?? '')
+const MAX_POLLS = 60
 let timer: ReturnType<typeof setTimeout> | undefined
 let stopped = false
-let polls = 0
+const polls = ref(0)
 let requestNumber = 0
 function pollWhenVisible() {
   if (stopped) return
@@ -63,8 +80,8 @@ async function load() {
     error.value = ''
     replacementRequired.value = false
     emit('changed', result)
-    if (['QUEUED', 'PROCESSING'].includes(result.status) && polls++ < 60)
-      timer = setTimeout(pollWhenVisible, Math.min(3000 + polls * 200, 10000))
+    if (['QUEUED', 'PROCESSING'].includes(result.status) && polls.value++ < MAX_POLLS)
+      timer = setTimeout(pollWhenVisible, Math.min(3000 + polls.value * 200, 10000))
   } catch (e) {
     if (stopped || props.disabled || request !== requestNumber) return
     const failure = asApiError(e)
@@ -72,6 +89,10 @@ async function load() {
     error.value = replacementRequired.value ? '' : failure.message
     emit('failure', e)
   }
+}
+function restart() {
+  polls.value = 0
+  void load()
 }
 async function decide(action: 'confirm' | 'reject') {
   if (!analysis.value || pending.value || props.disabled) return
@@ -94,7 +115,7 @@ watch(
   () => {
     requestNumber++
     clearTimeout(timer)
-    polls = 0
+    polls.value = 0
     void load()
   },
 )
@@ -133,7 +154,13 @@ onBeforeUnmount(() => {
       <p>
         Nous recherchons automatiquement les matières nécessaires à l’étude de votre candidature.
       </p>
-      <UiButton v-if="polls >= 60" variant="secondary" @click="load">Actualiser le statut</UiButton>
+      <template v-if="polls > MAX_POLLS">
+        <p class="mt-4">
+          L’analyse prend plus de temps que prévu. Vous pouvez actualiser son statut ou revenir plus
+          tard : votre brouillon est conservé.
+        </p>
+        <UiButton variant="secondary" @click="restart">Actualiser le statut</UiButton>
+      </template>
     </div>
     <template
       v-else-if="analysis.status === 'SUCCEEDED' && analysis.candidateConfirmation !== 'REJECTED'"
@@ -196,10 +223,7 @@ onBeforeUnmount(() => {
           : 'Nous n’avons pas pu lire correctement votre relevé.'
       "
     >
-      <p v-if="analysis?.failureCode === 'NEEDS_REVIEW'">
-        Certaines lignes du relevé ne passent pas les contrôles de cohérence. Leurs valeurs ne
-        peuvent pas être confirmées.
-      </p>
+      <p v-if="failureHint">{{ failureHint }}</p>
       <p>Essayez de fournir une version plus nette et complète du document.</p>
       <UiButton class="mt-4" variant="secondary" @click="emit('replace')"
         >Remplacer le relevé</UiButton

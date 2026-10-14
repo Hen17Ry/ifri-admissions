@@ -125,17 +125,33 @@ def safe_diagnostics(tokens, expected):
     }
 
 
-def extract_scan(page, expected, engine, minimum, page_timeout, page_number, diagnostics=None):
+def extract_scan(
+    page,
+    expected,
+    engine,
+    minimum,
+    page_timeout,
+    page_number,
+    diagnostics=None,
+    qualification=None,
+):
     import pymupdf
 
     from ifri_ocr.extraction import Tesseract, locate
     from ifri_ocr.layouts import select_section
 
     if isinstance(engine, Tesseract):
-        from ifri_ocr.cells import extract_bac_cells
+        from ifri_ocr.bac.pipeline import extract_bac_page
 
-        cell_result = extract_bac_cells(
-            page, expected, Tesseract(11), page_timeout, page_number, diagnostics
+        cell_result = extract_bac_page(
+            page,
+            expected,
+            page_timeout,
+            page_number,
+            diagnostics,
+            qualification,
+            reader=engine.cells.read,
+            prepare=engine.cells.prepare,
         )
         if cell_result is not None:
             return cell_result

@@ -1,91 +1,85 @@
-# Benchmark OCR — catégories et versions du pipeline
+# Benchmark OCR — synthétique et réel, mesurés séparément
 
-## Mesures historiques phase 5 (200 DPI)
+Mesures du 14 octobre 2026, clôture de la phase 5.1. Environnement : image worker Docker, Python 3.14.8, PyMuPDF 1.28.2, RapidFuzz 3.14.6, Tesseract 5.3.0 (`fra`, `eng`), OpenCV headless 4.13.0.92, NumPy 2.4.6, **RapidOCR 3.10.0 + onnxruntime 1.31.0** (modèle de reconnaissance PP-OCRv6 small, lecteur de chiffres de production) ; hôte 8 CPU, `OCR_CELL_WORKERS` par défaut (4) ; budget de page de production 30 s. Les durées sont celles du moteur (hors file Redis et callback), sauf mention « HTTP ».
 
-Exécution hôte après correction du matching : Python 3.14.8, PyMuPDF 1.28.2, RapidFuzz 3.14.6, Tesseract 5.3.0. Le profil Docker valide les 20 fixtures. Les six PDF texte nominaux réussissent avec valeurs exactes en 0,005 à 0,014 s. Les six scans nominaux réussissent avec valeurs exactes en 0,749 à 0,847 s.
+Un corpus synthétique, même réaliste, ne prouve aucune précision sur des relevés réels. Le corpus réel disponible compte **un seul** relevé : aucune précision de production n'est revendiquée. Corpus réel ≥ 10 relevés requis avant la production.
 
-Sans accents : réussite 0,005 s ; layout alternatif : réussite 0,008 s ; scan incliné : réussite 0,766 s. Matière absente : SUBJECT_NOT_FOUND 0,004 s ; coefficient absent : COEFFICIENT_NOT_FOUND 0,005 s ; ligne ambiguë : LOW_CONFIDENCE / AMBIGUOUS_ROW 0,004 s ; scan dégradé : SUBJECT_NOT_FOUND 0,841 s ; mauvais ensemble : SUBJECT_NOT_FOUND 0,671 s. Les notes et coefficients des cas positifs sont comparés exactement à ceux écrits dans les fixtures.
+## A. Synthétique générique — 20 fixtures suivies (chemins natif et scan générique)
 
-Parcours HTTP réel des six couples : QUEUED → PROCESSING → SUCCEEDED, 3,733 à 7,093 s observés, polling inclus. Confirmation/restauration et rejet/remplacement par scan passent. Les durées moteur ci-dessus excluent queue Redis, accès privé S3 et callback. Elles concernent seulement des fixtures synthétiques et ne prouvent aucune précision sur des formats IFRI réels.
+Commande : `docker compose --profile test run ocr-tests` (via `make check`). Les PDF sont régénérés dans le tmpfs du conteneur et **identiques octet pour octet** aux copies suivies. Ce chemin n'utilise pas RapidOCR.
 
-L’échec initial BAC_C provenait d’un concurrent fuzzy sous le seuil minimal ; il est corrigé avec tests de régression, sans baisse du seuil ni acceptation des véritables ambiguïtés.
+| Catégorie | Résultat |
+|---|---|
+| 6 PDF texte (BAC C, BAC E, DT DWM, DT IMI, DT PM, DT EAP) | SUCCEEDED, valeurs exactes |
+| 6 scans correspondants | SUCCEEDED, valeurs exactes |
+| Sans accents, mise en page alternative, scan incliné | SUCCEEDED, exact |
+| Matière absente, coefficient absent | FAILED `SUBJECT_NOT_FOUND`, `COEFFICIENT_NOT_FOUND` |
+| Ligne ambiguë, scan dégradé, mauvaises matières | LOW_CONFIDENCE (`AMBIGUOUS_ROW`, `LOW_CONFIDENCE`) |
+
+## B. Synthétique BAC général réaliste — chemin par cellules (18 cas)
+
+Commande : `docker compose --profile test run ocr-tests` (via `make check`, lecteur de chiffres RapidOCR) et `make ocr-engines-benchmark` (même banc avec `OCR_RAPIDOCR_ENABLED=false`). Générateur déterministe `tests/support/synthetic_bac.py` : relevé BAC général sur fond de sécurité, section écrite, ligne Total, moyenne imprimée tronquée ; PDF créés dans un répertoire temporaire, jamais dans le dépôt. Critère : statut attendu atteint, valeurs exactes quand `SUCCEEDED`, **aucune valeur fausse acceptée**.
+
+| Cas | Ce qu'il éprouve | Attendu et obtenu (deux moteurs) |
+|---|---|---|
+| `d-scan`, `d-photo`, `e-scan`, `c-photo-shuffled` | Scan, photo inclinée, série E, rangées dans un autre ordre | SUCCEEDED, exact |
+| `d-no-vertical-rules` | Colonnes sans filets verticaux | SUCCEEDED, exact |
+| `d-smudged-philosophy` | Rangée non attendue tachée | SUCCEEDED, exact |
+| `d-series-unprinted` | Lettre de série absente : non bloquant | SUCCEEDED, exact, série `NOT_FOUND` |
+| `c-declared-d` | Relevé C déclaré D | FAILED `SERIES_MISMATCH` |
+| `d-math-note-blank` | Note attendue illisible, Points ÷ Coeff validé par les totaux | SUCCEEDED, exact (origine `POINTS_TOTALS`) |
+| `d-wrong-total` | Même cas, Total Points faux | LOW_CONFIDENCE `NEEDS_REVIEW` |
+| `d-grade-points-mismatch` | Note lisible ≠ Points ÷ Coeff | LOW_CONFIDENCE `GRADE_POINTS_MISMATCH` |
+| `d-compensated-points` | Deux Points faux (+2 / −2), somme toujours juste | LOW_CONFIDENCE `GRADE_POINTS_MISMATCH` |
+| `d-faded-scale` | Une cellule Sur vide : reconstruite depuis le Total puis confirmée par sa rangée | SUCCEEDED, exact |
+| `d-two-scales-blank` | Deux cellules Sur vides dans la colonne : aucune reconstruction | LOW_CONFIDENCE `NEEDS_REVIEW` |
+| `d-scale-contradicted` | Reconstruction faussée par une autre cellule Sur erronée | LOW_CONFIDENCE `NEEDS_REVIEW` |
+| `d-duplicate-french` | Matière attendue sur deux rangées | LOW_CONFIDENCE `AMBIGUOUS_ROW` |
+| `d-missing-math` | Matière attendue absente | LOW_CONFIDENCE `NEEDS_REVIEW` |
+| `d-native-text` | PDF natif (couche texte) | SUCCEEDED, exact, sans OCR |
+
+| Lecteur de chiffres | Résultat | Durée par page (scans/photos) | dont ancrage / cellules |
+|---|---|---|---|
+| RapidOCR (production) | **18/18 conformes, 0 valeur fausse acceptée** | 6,6–8,3 s | 3,1–4,2 s / 2,7–3,7 s |
+| Tesseract (`OCR_RAPIDOCR_ENABLED=false`) | **18/18 conformes, 0 valeur fausse acceptée** | 7,7–9,9 s | 2,9–4,2 s / 4,0–4,8 s |
+
+Sur ce corpus imprimé net, les deux moteurs lisent toutes les cellules : la différence de précision n'apparaît que sur le réel (§C). De bout en bout HTTP (`ocr_smoke`, API → Redis → worker → Go), `d-photo` atteint SUCCEEDED exact en 17,4 s et `c-declared-d` FAILED `SERIES_MISMATCH` en 10,4 s, polling compris.
+
+## C. Réel privé — 1 relevé BAC D scanné (image seule)
+
+Commande : `make ocr-private` (moteur de production) et `make ocr-private ARGS="--numeric-engine tesseract"` (comparaison), harnais `ocr_private_eval.py`, validation Go `cmd/ocrvalidate`, budget de production 30 s. Rapport anonyme : aucune valeur ni texte reproduit ici ; les issues par rangée (EXACT / FALSE) comparent la décision à l'oracle local sans l'afficher.
+
+| Indicateur | RapidOCR (production) | Tesseract (comparaison) |
+|---|---|---|
+| Statut | LOW_CONFIDENCE `GRADE_POINTS_MISMATCH` | LOW_CONFIDENCE `GRADE_POINTS_MISMATCH` |
+| **Valeurs fausses acceptées** (worker et Go) | **0** | **0** |
+| Décisions de rangée fausses | 0 | 0 |
+| Durée moteur (ancrage / cellules) | 13,0 s (7,2 / 4,8) | 13,7 s (5,7 / 6,9) |
+| Libellés reconnus | 7/7 | 7/7 |
+| Série (lettre isolée, ADR 082) | lue, EXACT | lue, EXACT |
+| Cellules lisibles Note / Coeff / Points / Sur | 7 / 7 / 7 / 7 | 7 / 7 / 7 / 7 |
+| Coefficients validés (Sur = 20 × Coeff) | 6/7 | 3/7 |
+| Produits Points = Note × Coeff | 5/7 (2 contredits) | 5/7 (2 contredits) |
+| Cellules reconstruites depuis le Total | 0 (aucune illisible) | 0 |
+| Totaux Σ Coeff / Σ Points / Σ Sur | ✓ / ✓ / ✗ | ✓ / ✗ / ✗ |
+| Moyenne affichée (troncature ou arrondi) | ✗ | non lue |
+| Rangées attendues validées exactement | **2/3** (`VALIDATED_BY_ROW`) | 0/3 (`NEEDS_REVIEW`) |
+| Rangée attendue restante | note mal lue par l'OCR, contredite par Points ÷ Coeff → `GRADE_POINTS_MISMATCH` | idem |
+| Résultat accepté par Go comme terminal valide | oui | oui |
+
+Lecture : la règle par matière attendue (ADR 079) fait exactement ce pour quoi elle a été choisie. Deux notes sont prouvées par leur rangée ; la troisième, mal lue, est refusée au lieu d'être acceptée, et le relevé part en revue documentaire. Σ Sur ne concorde pas : au moins une valeur de la colonne Sur est lue fausse, et non illisible. Les totaux ne sont donc pas vérifiés, et aucune reconstruction ne s'applique. C'est voulu : une cellule mal lue ne déclenche jamais de reconstruction. Le relevé réel reste un objectif ; le critère bloquant, 0 valeur fausse acceptée, est atteint avec les deux moteurs.
+
+## D. RapidOCR — adopté pour les cellules numériques (ADR 078)
+
+- Décision utilisateur du 14 octobre 2026 : RapidOCR lit les seules cellules numériques du profil BAC ; Tesseract garde ancres, libellés, lettre de série et chemin générique. Port `CellReader` (`ifri_ocr.engines`), `OCR_RAPIDOCR_ENABLED=true` par défaut, `false` pour revenir aux chiffres Tesseract dans la même image.
+- Runtime : `rapidocr==3.10.0` (Apache-2.0) et `onnxruntime==1.31.0` (MIT) figés dans `services/ocr/uv.lock` avec leurs dépendances (pyclipper, shapely, omegaconf, pillow, requests…, toutes en roues cp314) ; `opencv-python-headless` reste l'unique OpenCV.
+- Modèle : seul `PP-OCRv6_rec_small.onnx` (21 Mo) est embarqué dans `/opt/rapidocr-models`, téléchargé au build et vérifié contre `services/ocr/rapidocr-models.sha256` (même empreinte que le manifeste publié par RapidOCR 3.10.0) ; le build échoue sinon. Aucun téléchargement à l'exécution : le worker est sur un réseau interne sans sortie et la readiness refuse un modèle absent ou altéré.
+- Télémétrie : les roues Linux d'onnxruntime 1.31 embarquent une télémétrie 1DS (HTTPS vers un collecteur Microsoft) ; `ORT_DISABLE_TELEMETRY=1` est posé dans l'image et avant l'import.
+- Coûts mesurés : image worker 823 Mo → 1,07 Go, puis 1,14 Go avec le bytecode Python précompilé (système de fichiers en lecture seule, voir PHASE5_1_VALIDATION) ; chargement du modèle ≈ 3 s par sous-processus d'analyse, masqué en le lançant pendant la passe d'ancrage ; second moteur à maintenir.
+- La règle d'acceptation arithmétique et la validation Go ne dépendent pas du moteur : un chiffre mal lu par l'un ou l'autre ne peut être accepté que s'il passe les mêmes contrôles.
+
+## Historique
+
+Avant la phase 5.1 corrective, deux fixtures BAC synthétiques sur trois échouaient (`ROW_SEGMENTATION_FAILED`, contrainte 5–12 rangées). Phase 5 (200 DPI) : fixtures natives exactes en 0,005–0,014 s, scans nominaux exacts en 0,75–0,85 s, parcours HTTP des six couples en 3,7–7,1 s ; ces mesures précèdent le profil BAC par cellules.
 
 Une validation sur un corpus anonymisé de relevés réels représentant les différents formats BAC/DT est nécessaire avant mise en production.
-
-
-## Phase 5.1 — mesures distinctes à produire
-
-| Catégorie | Corpus | État actuel |
-|---|---|---|
-| A. PDF texte synthétique | Six couples de référentiel + BAC écrit/oral synthétique | Tests natifs unitaires exécutés ; benchmark nouveau moteur hôte à refaire |
-| B. PDF scan synthétique | Six scans antérieurs + fond vert/jaune et sections/doublons | Prétraitements/géométrie testés ; Tesseract nouveau pipeline non mesuré ici |
-| C. PDF image/photo synthétique | PNG/JPEG convertis, éclairage simulé et skew | Détection image-only et pipeline testés avec adapter simulé ; OCR réel à mesurer |
-| D. Scan réel privé local | Relever.pdf + oracle ignoré | NON TESTÉ : fixture absente de cet environnement ; commande optionnelle préparée |
-
-OpenCV/NumPy installés officiellement sur l’hôte et utilisés par les tests locaux. Résolution initiale proposée 300 DPI, repli 350 DPI ; plafond configurable 400 DPI et trois passes. Comparaison de grayscale/CLAHE/adaptive/Otsu/canal et PSM 6/11 à 300 DPI, puis étude séparée 200/300/350/400 DPI prévue dans ocr_scan_benchmark.py, séparée de la stratégie de production bornée. Les valeurs 200 DPI historiques ci-dessus ne sont pas extrapolées à 300/350 DPI. Aucun coût/qualité réel privé inventé.
-
-La calibration privée imprime seulement profil/section/prétraitement/résolution, temps, valeurs des matières attendues et scores heuristiques ; aucun texte complet/nom/empreinte privée. Un seul scan réussi ne constitue pas un corpus de précision ni une validation production.
-
-
-## Première mesure hôte 5.1 (avant correction du recadrage privé)
-
-| Catégorie | Résultat mesuré |
-|---|---|
-| A. Texte synthétique | Six nominales exactes, 0,005–0,016 s ; écrit/oral BAC synthétique exact en 0,021 s |
-| B. Scan synthétique | Six nominales exactes, 2,662–4,306 s ; fond sécurité PNG exact en 5,038 s |
-| C. Image/photo synthétique | JPEG éclairage exact en 5,768 s ; skew exact en 5,985 s |
-| D. Réel privé local | LOW_CONFIDENCE, aucune valeur retournée, 32,372 s ; section écrite reconnue, pas de recadrage faute d’en-têtes exacts |
-
-À 300 DPI sur le BAC sécurité synthétique, PSM 6 obtient les valeurs exactes avec grayscale (1,711 s), CLAHE (1,783 s), adaptive (1,248 s), Otsu (1,140 s) et canal (1,210 s). PSM 11 obtient GRADE_NOT_FOUND pour ces cinq variantes, mais son repérage d’ancres sert au recadrage. Étude CLAHE/PSM 11 : 200 DPI 1,812 s, 300 2,164 s, 350 2,482 s, 400 2,654 s ; aucune ne résout la lecture des cellules. Ceci ne prouve ni une supériorité générale d’un mode, ni un avantage qualité des hautes résolutions.
-
-Le coût du nouveau scan est supérieur au chemin simple 200 DPI historique ; son gain mesuré porte sur profil/sections, fond coloré, JPEG et skew synthétiques. Après échec réel, le recadrage n’attend plus les en-têtes et les grands glyphes sont filtrés avant reconstruction. Mesures privées et régression de cette correction restent à produire. Seul le résultat anonyme de calibration sera consigné ; aucun nom, chemin personnel, texte intégral, hash ou copie privée dans ce document.
-
-### Stratégie BAC général par cellules — correction demandée
-
-La stratégie active pour les scans BAC général remplace les essais OCR globaux par : correction géométrique prudente (contour de page quadrilatéral crédible, puis deskew), binarisation du canal V HSV (= max RGB), ancres du premier groupe écrit et Total écrit, reconstruction morphologique d'une grille de cinq colonnes fixes, OCR PSM7 de chaque cellule agrandie ×3. Whitelist numérique `0123456789,.`. Les en-têtes OCR ne déterminent plus les colonnes. Les tables sans séparateurs horizontaux internes utilisent les bandes de texte numérique pour reconstruire les séparations ; une géométrie ou des cellules incohérentes imposent NEEDS_REVIEW. Les profils génériques conservent leur chemin existant.
-
-La liste fermée documentaire des matières BAC sert au matching ; elle ne remplace pas le snapshot des matières d'admission. Notes et coefficients viennent toujours de leurs propres cellules. Points = note × coefficient et Sur = 20 × coefficient sont vérifiés exactement sur chaque ligne, puis les sommes coefficient/points/Sur sont comparées au Total écrit. La note récapitulative imprimée peut être arrondie ou tronquée au centième : contrôle secondaire avec tolérance `0,01 × coefficient total` ; aucun résultat de moyenne d'admission n'est créé.
-
-Sur demande explicite de l'utilisateur, ces preuves arithmétiques remplacent le seuil Tesseract **uniquement pour ce profil**. Les confiances réelles restent présentes. Go revérifie indépendamment les produits, sommes, ligne sélectionnée et bornes de valeurs avec `big.Rat` avant acceptation d'une extraction à faible confiance. Les lignes incohérentes portent NEEDS_REVIEW dans le diagnostic ; le résultat conserve l'état terminal existant LOW_CONFIDENCE avec failureCode NEEDS_REVIEW, afin de ne pas inventer un circuit administratif de phase 6.
-
-Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs parsées, contrôles par ligne, contrôles des totaux et série. Aucun en-tête d'identité, texte de page complet, hash ou PDF n'est exporté. Calibration via `ocr_private_run.py` ; l'ancien argument `--evaluate` utilise désormais la même stratégie, sans matrice de variantes. Les anciens benchmarks sont historiques et ne valident pas ce nouveau chemin. Test réel et régression Docker restent à mesurer. RapidOCR sera évalué sur les mêmes cellules seulement si la lecture numérique reste insuffisante, après vérification de compatibilité Python 3.14.
-
-### Correction de segmentation des rangées
-
-Dernier run privé Docker : NEEDS_REVIEW, 18,054 s, deux lignes et cellules vides. Correction : les rangées ne dépendent plus des traits horizontaux ; projection de l'encre dans la colonne Matière après filtrage des motifs et bandes trop courtes selon la hauteur des caractères. La grille conserve la détection morphologique des vrais traits verticaux. Nombre plausible : 5 à 12 rangées de données, sinon ROW_SEGMENTATION_FAILED avant OCR. Ce motif est accepté par Go comme résultat LOW_CONFIDENCE terminal, sans retry technique.
-
-Chaque crop a largeur/hauteur en pixels, proportion de pixels noirs, polarité et éventuel motif vide/timeout. La série est lue séparément, sur une petite zone à droite de son ancre en haut à gauche, whitelist ABCDE. Les images privées de debug (section, overlay des colonnes/bandes, crops avant/après agrandissement) sont écrites uniquement lors de la calibration dans un répertoire `/tmp/ifri-ocr-private-debug-*`, monté en écriture ; aucun fichier privé ne rejoint le dépôt ni le build Docker.
-
-Vérification locale de segmentation sur une zone de tableau sélectionnée pour le diagnostic, sans Tesseract : 8 rangées de données, 40 crops non vides, dimensions minimales 196 × 42 pixels, proportion noire 0,0197 à 0,799. Ces mesures ne prouvent pas encore la localisation automatique ni la lisibilité OCR ; le nouveau run Docker reste nécessaire.
-
-### Bordures, colonnes et budget de calibration
-
-La sélection des colonnes est ancrée aux extrémités du premier trait horizontal long du tableau. Six axes sont recherchés à l'intérieur de cette bordure, près des ratios du profil stable : 0 / 0,535 / 0,645 / 0,755 / 0,89 / 1. Un axe absent ou décalé déclenche le fallback de ratios, jamais une translation silencieuse des cinq colonnes. Matière est nettement plus large ; Points est légèrement plus large que Note/Coeff/Sur. Un tableau sans bordure crédible renvoie COLUMN_SEGMENTATION_FAILED.
-
-Otsu est calculé sur le canal V de chaque crop, avec marge intérieure de 8 pixels sur X et 5 sur Y pour exclure les traits. Les temps par cellule sont consignés. La boucle s'arrête dès reconnaissance du libellé Total ; aucune rangée orale n'est ajoutée. La calibration privée seule dispose de 120 secondes par page ; le budget production reste inchangé. Le prochain benchmark devra comparer ce coût à cinq appels Tesseract par bandes de colonnes PSM6 (numériques avec whitelist), sur les mêmes limites et contrôles, avant tout changement de stratégie production.
-
-Règle d'acceptation mise à jour sur instruction utilisateur : Note et Coeff sont obligatoires ; Sur doit être lisible et égal à 20 × Coeff. Points peut être illisible (diagnostic `null` pour ce contrôle), mais une valeur lisible contradictoire bloque la ligne. Go applique la même règle, conserve Points manquant sans fabriquer de valeur extraite et vérifie les sommes contre les totaux lisibles. Les produits calculés sont exclusivement des contrôles documentaires.
-
-Le run privé précédent reste en échec : 31,193 s, colonnes décalées, budget épuisé. La vérification locale sur la zone de tableau diagnostique retrouve 8 rangées et des largeurs relatives 53/11/11/13/11 %, sans succès OCR déclaré. Le nouveau run automatique Docker reste à effectuer.
-
-### Règle d'acceptation corrigée — prioritaire sur la règle précédente
-
-Sur = 20 × Coeff valide uniquement le coefficient. Une note exige Points = Note × Coeff sur sa ligne, OU les deux sommes exactes Σ Note×Coeff = Total Points et Σ Coeff = Total Coeff. Points illisible ne valide donc plus une note sans totaux. Points lisible contradictoire reste bloquant. Les statuts `coefficientStatus` et `gradeStatus` sont séparés ; validation par ligne ou par totaux explicitée. Go vérifie la preuve décimale indépendamment et exige des totaux Points lisibles pour l'acceptation du dossier. Coeff entier 1..6 ; Sur multiple de 20 cohérent ; Note 0..20. Aucun seuil de confiance ne supplée un contrôle arithmétique manquant.
-
-La limite physique de l'en-tête est exclue avant la projection des rangées, avec marge intérieure de 5 px sur X / 4 px sur Y. Le traitement effectif de chaque cellule est loggé : HSV_V_CELL_OTSU ; pour Points trop noir (>45 %), RED_CELL_CLAHE_OTSU. Cette décision utilise la densité du crop, pas ses valeurs attendues. Le TSV d'un seul appel fournit texte et confiance : seuls les mots level=5, confidences négatives ignorées et comptées, confiance moyenne des mots restants, véritables zéros conservés.
-
-Dernier scan privé Docker : 36,864 s, NEEDS_REVIEW, aucune extraction complète acceptée, Total et série encore illisibles. Il ne valide pas la nouvelle correction. Les contrôles locaux et le run privé suivant restent distincts.
-
-### Borne du premier tableau écrit — non-régression
-
-Le run privé précédent (12,611 s, ROW_SEGMENTATION_FAILED) incluait le tableau EPS dans les bandes. Les bandes sont désormais regroupées par écarts : un saut supérieur à 2,5 × l'écart médian ouvre un autre tableau ; seul le premier tableau après le titre écrit est retenu. L'écart en-tête/première matière n'est pas une coupure de tableau. Le séparateur d'en-tête est recherché exclusivement entre la bande d'en-tête et la première bande de données. L'OCR s'arrête au Total écrit inclus, sans nombre de matières fixé selon une série.
-
-Tests : bornes transmises (en-tête + 7 matières + Total + EPS), exemple plus court à nombre variable, et image synthétique à deux tableaux largement séparés. Suite Python : 66 PASS. Les règles de preuve de note par Points/totaux, contraintes de coefficient, Otsu par cellule avec fallback rouge pour Points, et confiance du même TSV restent inchangées et couvertes. Aucun nouveau résultat OCR privé n'est déclaré avant relance Docker.
-
-### Correction documentaire : notes dérivées exclusivement après trois totaux
-
-Instruction utilisateur prioritaire : quand Σ Coeff, Σ Points et Σ Sur lus correspondent tous aux cellules Total, la valeur retenue de chaque note est Points ÷ Coeff, avec `gradeStatus=VALIDATED_BY_TOTALS` et `gradeSource=POINTS_TOTALS`. La lecture brute/directe et sa divergence restent conservées. Coeff n'est jamais dérivé. Une somme fausse ou incomplète garde toutes les lignes en NEEDS_REVIEW. Les décimales non terminantes ne sont ni arrondies ni inventées. Go autorise une divergence note brute/valeur retenue uniquement pour ce mode avec preuve complète indépendante en rationnels exacts et coordonnées Points/Sur ; les autres extractions gardent l'égalité lecture brute/valeur. Aucun calcul de moyenne d'admission n'est introduit.
-
-Parseur : virgule décimale et séparateur final isolé acceptés (`18.`, `80 .`), sans assembler des chiffres séparés. Le contrôle Sur/Coeff ne dépend plus de la lisibilité de Note. Les noyaux morphologiques longs suppriment les traits sur chaque cellule avant agrandissement ; les crops de données ont une marge symétrique autour de leur propre bande, y compris Anglais, sans remonter à l'en-tête. Seuils de confiance inchangés.
-
-Dernier run privé : 40,398 s, NEEDS_REVIEW, 8 rangées correctement isolées ; les notes et totaux restent insuffisants. La nouvelle correction attend son run OCR réel. Validation locale avant relance : 74 tests Python et Go tests PASS ; aucune précision réelle déclarée acquise.

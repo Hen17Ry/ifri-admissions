@@ -38,7 +38,7 @@ func (r Repository) dispatchToStream(ctx context.Context, cache *redis.Client, s
 	if _, err = tx.Exec(ctx, `UPDATE ocr_analyses SET status=CASE WHEN attempt_number>=3 THEN 'FAILED' ELSE 'QUEUED' END,failure_code=CASE WHEN attempt_number>=3 THEN 'ANALYSIS_TIMEOUT' ELSE NULL END,dispatched_at=NULL,updated_at=now() WHERE status='PROCESSING' AND started_at<now()-interval '5 minutes'`); err != nil {
 		return err
 	}
-	rows, err := tx.Query(ctx, `SELECT o.id::text,document_version_id::text,rule_grid_version_id::text,expected_subjects,v.sha256 FROM ocr_analyses o JOIN document_versions v ON v.id=o.document_version_id WHERE status='QUEUED' AND (dispatched_at IS NULL OR dispatched_at<now()-interval '5 minutes') ORDER BY o.created_at LIMIT 10 FOR UPDATE OF o SKIP LOCKED`)
+	rows, err := tx.Query(ctx, `SELECT o.id::text,document_version_id::text,rule_grid_version_id::text,expected_subjects,v.sha256,q.code FROM ocr_analyses o JOIN document_versions v ON v.id=o.document_version_id JOIN origin_qualifications q ON q.id=o.origin_qualification_id WHERE status='QUEUED' AND (dispatched_at IS NULL OR dispatched_at<now()-interval '5 minutes') ORDER BY o.created_at LIMIT 10 FOR UPDATE OF o SKIP LOCKED`)
 	if err != nil {
 		return err
 	}
@@ -49,11 +49,13 @@ func (r Repository) dispatchToStream(ctx context.Context, cache *redis.Client, s
 		DocumentVersion string          `json:"documentVersionId"`
 		Grid            string          `json:"gridVersionId"`
 		Expected        json.RawMessage `json:"expectedSubjects"`
+		// Additive in contract v1: lets the worker compare the printed BAC series.
+		Qualification string `json:"qualificationCode"`
 	}
 	jobs := []job{}
 	for rows.Next() {
 		j := job{ContractVersion: 1}
-		if err = rows.Scan(&j.ID, &j.DocumentVersion, &j.Grid, &j.Expected, &j.SHA256); err != nil {
+		if err = rows.Scan(&j.ID, &j.DocumentVersion, &j.Grid, &j.Expected, &j.SHA256, &j.Qualification); err != nil {
 			rows.Close()
 			return err
 		}

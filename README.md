@@ -257,7 +257,7 @@ Les captures de toutes les étapes aux quatre largeurs sont dans browser-artifac
 
 ## Phase 5 en cours — dépendances OCR
 
-Python 3.14 conservé. Le worker utilise PyMuPDF/RapidFuzz et Tesseract système avec fra+eng, installés dans l’image Docker. Avant de reconstruire cette image, générer le lock officiel et synchroniser le projet :
+Python 3.14 conservé. Le worker utilise PyMuPDF/RapidFuzz, Tesseract système avec fra+eng et, depuis la phase 5.1, RapidOCR/onnxruntime pour les cellules numériques BAC, installés dans l’image Docker. Avant de reconstruire cette image, générer le lock officiel et synchroniser le projet :
 
 ```powershell
 uv lock --project services/ocr
@@ -273,13 +273,23 @@ docker compose --profile test run --build --rm references-tests
 docker compose --profile test run --build --rm ocr-tests
 ```
 
-Le second service réutilise le build du service ocr-worker via additional_contexts, exécute les tests Python et génère les fixtures via l’API réelle. Sorties dans services/ocr/tests/fixtures, benchmark.json inclus. Le dossier contient un README pour être présent dans un clone neuf. Sous Linux, le profil utilise UID/GID 1000 pour les artefacts ; adapter le champ user du profil si le propriétaire du workspace utilise un autre UID. La stack de développement doit avoir été reconstruite avant ce profil.
+Le second service réutilise le build du service ocr-worker via additional_contexts, exécute pytest avec Tesseract réel, régénère les fixtures génériques dans son tmpfs et échoue si un octet diffère des copies suivies (il n'écrit jamais dans le dépôt), puis exécute le benchmark BAC synthétique réaliste. `make fixtures` régénère délibérément les fixtures suivies.
 
 
-## Phase 5.1 corrective — validation en cours
+## Phase 5.1 — validation locale (`make check`)
 
-L’analyse est automatique dans la carte du relevé : cinq étapes, confirmation/rejet dans Documents, aucun bouton de lancement OCR. Le chemin scan utilise désormais OpenCV headless/NumPy, profils de sections BAC, 300 DPI et passes bornées. Configuration dans .env.example ; matières toujours déterminées par référentiel, note/coefficient toujours lus du PDF.
+L’analyse est automatique dans la carte du relevé : cinq étapes, confirmation/rejet dans Documents, aucun bouton de lancement OCR. Les relevés BAC général scannés sont lus cellule par cellule (paquet `ifri_ocr.bac`) — chiffres par RapidOCR, libellés et série par Tesseract — et acceptés uniquement par l'arithmétique (voir docs/OCR_PIPELINE.md). `OCR_RAPIDOCR_ENABLED=false` repasse les chiffres sur Tesseract ; le modèle RapidOCR est téléchargé au build de l'image worker et vérifié par SHA-256, jamais à l'exécution.
 
-Après uv lock/sync, rebuild de la stack puis profil ocr-tests : tests Python, régression des 20 fixtures et benchmark scan/photo à fond de sécurité. Les résultats de phase 5 à 200 DPI ne prouvent pas ceux du nouveau pipeline. Voir docs/PHASE5_1_VALIDATION.md.
+```sh
+make check          # tout : statique, stack Docker + intégration + smoke + ocr-tests, Playwright
+make check-static   # sans Docker : web, Go, Python, Ruff, Compose config
+make check-stack    # stack reconstruite, migrations, seed, intégration Go, smoke HTTP, ocr-tests
+make check-browser  # Playwright (Vite démarré par la suite, port 5173 libre)
+make ocr-private    # corpus privé ignoré : <nom>.pdf + <nom>.expected.json ; ARGS=--keep-debug
+                    # ou ARGS="--numeric-engine tesseract" pour comparer les lecteurs de chiffres
+make ocr-engines-benchmark  # benchmark BAC synthétique avec RapidOCR (production) puis Tesseract
+```
 
-`python infra/scripts/ocr_private_run.py` exécute la calibration privée via bind mount read-only, seulement si `services/ocr/tests/private-fixtures/Relever.pdf` et son oracle.json existent localement. Ce dossier est ignoré Git et exclu des deux contextes Docker. Le PDF n’est jamais intégré à une image. L’oracle local contient uniquement codes matière et couples note/coefficient attendus, sans identité. Sur un clone sans ce document : NON TESTÉ, aucun blocage de la suite normale. Aucun OCR intégral, nom ou hash privé journalisé.
+`make check` tient lieu de CI tant que le dépôt n'a pas de remote ; il continue après un échec et imprime un tableau PASS/FAIL avec durées et le chemin des journaux.
+
+Corpus privé : chaque `services/ocr/tests/private-fixtures/<nom>.pdf` accompagné de `<nom>.expected.json` (`{"qualification": "BAC_D", "program": "GL", "series": "D", "subjects": {"MATH": {"grade": "…", "coefficient": "…"}, …}}`), tous deux ignorés par Git et les contextes Docker. Montage en lecture seule sous un nom anonyme, budget de page de production, validation Go incluse ; le rapport ne contient que des issues par champ (EXACT / FALSE / MISSING) et le nombre de valeurs fausses acceptées. Sans corpus : NON TESTÉ, sans bloquer la suite.

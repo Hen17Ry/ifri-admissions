@@ -1,7 +1,11 @@
 """Real six-case reference/S3/Redis/worker/confirmation journey; synthetic fixtures only."""
 
 import json
+import sys
+import tempfile
+from decimal import Decimal
 from http.cookiejar import CookieJar
+from pathlib import Path
 from time import monotonic, sleep
 from urllib.error import HTTPError
 from urllib.request import HTTPCookieProcessor, Request, build_opener
@@ -18,9 +22,7 @@ def main():
     base = "/api/v1/applications/drafts"
     client = build_opener(HTTPCookieProcessor(CookieJar()))
 
-    def request(
-        method, path, data=None, expected=200, version=None, anonymous=False, raw=False
-    ):
+    def request(method, path, data=None, expected=200, version=None, anonymous=False, raw=False):
         headers = {"Origin": origin}
         if raw:
             headers["Content-Type"] = "multipart/form-data; boundary=ifri-ocr-smoke"
@@ -39,23 +41,20 @@ def main():
             response = error
         with response:
             if response.status != expected:
-                raise RuntimeError(
-                    f"{method} {path}: expected {expected}, got {response.status}"
-                )
+                raise RuntimeError(f"{method} {path}: expected {expected}, got {response.status}")
             body = response.read()
             return json.loads(body) if body and expected != 404 else None
 
     def upload(kind, filename, version):
         body = (
-            b'--ifri-ocr-smoke\r\nContent-Disposition: form-data; name="file"; filename="synthetic.pdf"\r\nContent-Type: application/pdf\r\n\r\n'
+            b"--ifri-ocr-smoke\r\nContent-Disposition: form-data; "
+            b'name="file"; filename="synthetic.pdf"\r\nContent-Type: application/pdf\r\n\r\n'
             + filename.read_bytes()
             + b"\r\n--ifri-ocr-smoke--\r\n"
         )
-        return request(
-            "POST", base + "/current/documents/" + kind, body, 201, version, raw=True
-        )
+        return request("POST", base + "/current/documents/" + kind, body, 201, version, raw=True)
 
-    def wait_analysis():
+    def wait_analysis(terminal_failure=False):
         deadline = monotonic() + 150
         transitions = []
         while monotonic() < deadline:
@@ -63,9 +62,12 @@ def main():
             if not transitions or transitions[-1] != analysis["status"]:
                 transitions.append(analysis["status"])
             if analysis["status"] not in {"QUEUED", "PROCESSING"}:
+                if terminal_failure:
+                    return analysis
                 if analysis["status"] != "SUCCEEDED":
                     raise RuntimeError(
-                        f"Extraction failed safely: {analysis['status']} {analysis.get('failureCode', '')}"
+                        "Extraction failed safely: "
+                        f"{analysis['status']} {analysis.get('failureCode', '')}"
                     )
                 print("Observed analysis states: " + " -> ".join(transitions))
                 return analysis
@@ -82,13 +84,13 @@ def main():
         ("SEIOT", "DT_EAP"),
     ]
     required_fixtures = [
-        fixtures / f"{program}-{qualification}-text.pdf"
-        for program, qualification in cases
+        fixtures / f"{program}-{qualification}-text.pdf" for program, qualification in cases
     ]
     required_fixtures.append(fixtures / "SEIOT-DT_EAP-scan.pdf")
     if any(not path.is_file() for path in required_fixtures):
         raise RuntimeError(
-            "Fixtures OCR absentes : exécutez d'abord le profil Docker ocr-tests avec succès. Aucun brouillon créé."
+            "Fixtures OCR absentes : exécutez d'abord le profil Docker ocr-tests avec succès. "
+            "Aucun brouillon créé."
         )
     first_id = None
     draft = request("POST", base, {"campaign": "DEV_LOCAL"}, 201)
@@ -130,14 +132,13 @@ def main():
                 )
                 version = listing["applicationVersion"]
         started = monotonic()
-        listing = upload(
-            "TRANSCRIPT", fixtures / f"{program}-{qualification}-text.pdf", version
-        )
+        listing = upload("TRANSCRIPT", fixtures / f"{program}-{qualification}-text.pdf", version)
         version = listing["applicationVersion"]
         current = wait_analysis()
         reference = request(
             "GET",
-            f"/api/v1/expected-subjects?campaign=DEV_LOCAL&program={program}&qualification={qualification}",
+            f"/api/v1/expected-subjects?campaign=DEV_LOCAL&program={program}"
+            f"&qualification={qualification}",
         )
         if [s["code"] for s in current["subjects"]] != [
             s["code"] for s in reference["expectedSubjects"]
@@ -158,14 +159,13 @@ def main():
             )
             if (
                 not confirmed["verificationReady"]
-                or request("GET", base + "/current/transcript-analysis")[
-                    "candidateConfirmation"
-                ]
+                or request("GET", base + "/current/transcript-analysis")["candidateConfirmation"]
                 != "CONFIRMED"
             ):
                 raise RuntimeError("Confirmation/restoration failed")
         print(
-            f"{qualification} + {program}: native extraction and reference PASS; observed total {monotonic() - started:.3f}s (includes polling)"
+            f"{qualification} + {program}: native extraction and reference PASS; "
+            f"observed total {monotonic() - started:.3f}s (includes polling)"
         )
         draft = request("GET", base + "/current")
     rejected = request(
@@ -198,9 +198,57 @@ def main():
     request("GET", base + "/current/transcript-analysis", expected=401, anonymous=True)
     request("POST", "/internal/ocr/" + replacement["id"] + "/result", {}, 404)
     print(
-        "Rejection, scanned replacement, fresh analysis, stale confirmation 409, missing session 401 and private callback route 404: PASS"
+        "Rejection, scanned replacement, fresh analysis, stale confirmation 409, "
+        "missing session 401 and private callback route 404: PASS"
     )
+    bac_cell_path(request, upload, wait_analysis, base)
     print("Phase 5 HTTP: PASS. Synthetic draft retained; no average or submission.")
+
+
+def bac_cell_path(request, upload, wait_analysis, base):
+    """Realistic synthetic BAC photo through API, Redis, worker cell path and Go validation."""
+    sys.path.insert(0, str(ROOT / "services/ocr/tests"))
+    from support.synthetic_bac import TARGET_LABELS, fixture_bytes, variant
+
+    draft = request("GET", base + "/current")
+    draft = request(
+        "PATCH",
+        base + "/current/academic-background",
+        {"version": draft["version"], "qualification": "BAC_D", "graduationYear": 2025},
+    )
+    draft = request(
+        "PATCH", base + "/current/program", {"version": draft["version"], "program": "GL"}
+    )
+    version = draft["version"]
+    with tempfile.TemporaryDirectory(prefix="ifri-smoke-") as directory:
+        for name, expected_status, expected_failure in (
+            ("d-photo", "SUCCEEDED", ""),
+            ("c-declared-d", "FAILED", "SERIES_MISMATCH"),
+        ):
+            path = Path(directory) / f"{name}.pdf"
+            path.write_bytes(fixture_bytes(name))
+            started = monotonic()
+            version = upload("TRANSCRIPT", path, version)["applicationVersion"]
+            analysis = wait_analysis(terminal_failure=True)
+            if (analysis["status"], analysis.get("failureCode", "")) != (
+                expected_status,
+                expected_failure,
+            ):
+                raise RuntimeError(
+                    f"BAC {name}: {analysis['status']} {analysis.get('failureCode', '')}"
+                )
+            transcript, _ = variant(name)
+            oracle = transcript.oracle(TARGET_LABELS)
+            for subject in analysis["subjects"]:
+                values = (Decimal(subject["gradeValue"]), Decimal(subject["coefficientValue"]))
+                if values != tuple(map(Decimal, oracle[subject["code"]])):
+                    raise RuntimeError(f"BAC {name}: FALSE VALUE ACCEPTED")
+                if subject["evidence"].get("validation") != "CELL_ARITHMETIC":
+                    raise RuntimeError(f"BAC {name}: cell arithmetic evidence missing")
+            print(
+                f"BAC cell path {name}: {analysis['status']} {analysis.get('failureCode', '')} "
+                f"via API/worker/Go in {monotonic() - started:.3f}s (includes polling)"
+            )
 
 
 if __name__ == "__main__":

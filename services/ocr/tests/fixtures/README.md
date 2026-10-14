@@ -1,5 +1,16 @@
 # Synthetic OCR fixtures
 
-Generate these PDFs with the opt-in Compose `ocr-tests` service after migrating and seeding DEV_LOCAL. The generator reads expected subjects from the real Go reference API for the six required qualification/program pairs. Numerical values are written into synthetic PDFs only; they are not worker defaults or admission rules.
+Generic synthetic PDFs (six native, six scanned, plus GL/DT_DWM edge cases: accents, missing
+subject/coefficient, ambiguous row, alternate layout, skew, wrong subjects, degraded scan). Subject
+names come from the real Go reference API; printed values belong to the fixtures only and are
+never worker defaults or admission rules. No personal information or real transcript belongs here.
 
-Six native PDFs and six scanned PDFs exercise the matrix. Additional GL/DT_DWM fixtures cover accents, missing subjects/coefficients, ambiguous rows, a different layout, slight skew, wrong subjects and degraded scans. `benchmark.json` records measured status and duration; inspect it before updating OCR_BENCHMARK. No personal information or real transcript belongs here.
+The generator (`infra/scripts/ocr_fixtures.py`) is deterministic: fixed metadata and trailer ID.
+`docker compose --profile test run ocr-tests` regenerates them in the container's tmpfs and fails
+if any byte differs from these committed copies; it never writes here. Refresh them deliberately
+with `make fixtures` after changing the generator, and commit the result.
+
+Realistic BAC general transcripts (colored bands, watermark, grey rows without rulings, written +
+EPS + oral tables, photo perspective) are generated on the fly by
+`tests/support/synthetic_bac.py` and are not stored. Benchmark results live in
+`docs/OCR_BENCHMARK.md`, not in this directory.

@@ -70,5 +70,6 @@ def select_section(tokens):
     selected = [t for t in tokens if t.box[1] >= start and t.box[3] <= end]
     return replace(BAC_GENERAL, bounds=(start, end)), selected, ""
 
+
 # Stable BAC-general table geometry, measured relative to its outer border, not page X.
 BAC_COLUMN_RATIOS = (0.0, 0.535, 0.645, 0.755, 0.89, 1.0)

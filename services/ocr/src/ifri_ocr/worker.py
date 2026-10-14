@@ -77,9 +77,11 @@ def main() -> int:
             secret.startswith("replace-dev-") or urlparse(base).scheme != "https"
         ):
             raise RuntimeError("Production OCR internal configuration invalid")
+        from ifri_ocr.bac.reading import cell_workers
         from ifri_ocr.scans import ScanSettings
 
         ScanSettings.load()
+        cell_workers()
         timeout = int(os.environ.get("OCR_ANALYSIS_TIMEOUT_SECONDS", "120"))
         minimum = float(os.environ.get("OCR_MIN_CONFIDENCE", "0.85"))
         if not 10 <= timeout <= 240 or not 0.5 <= minimum <= 1:
@@ -95,6 +97,11 @@ def main() -> int:
         ).stdout.decode()
         if not all(language in languages.split() for language in ("fra", "eng")):
             raise RuntimeError("Tesseract fra/eng required")
+        from ifri_ocr.engines import cell_reader
+
+        # Numeric cell reader (RapidOCR by default): pinned model intact and one inference run.
+        reader = cell_reader()
+        reader.verify()
         api = InternalClient(base, secret)
         if not api.ready():
             raise RuntimeError("Internal API readiness failed")
@@ -116,7 +123,7 @@ def main() -> int:
         pulse = Thread(target=heartbeat, daemon=True)
         pulse.start()
         consumer = socket.gethostname()
-        logger.info("Worker ready; hybrid extraction enabled")
+        logger.info("Worker ready; hybrid extraction enabled", extra={"engine": reader.name})
         while not stop.is_set():
             reclaimed = client.xautoclaim(
                 STREAM, GROUP, consumer, min_idle_time=300000, start_id="0-0", count=1
@@ -141,7 +148,11 @@ def main() -> int:
                     )
                 except RuntimeError, OSError, ValueError, KeyError:
                     logger.error("Analysis transport failed; pending job retained")
-    except RedisError, RuntimeError, OSError, ValueError, subprocess.SubprocessError:
+    except (RuntimeError, ValueError) as error:
+        # Static readiness reasons only (configuration, Tesseract, RapidOCR model); no secrets.
+        logger.error("Worker unavailable", extra={"failure_code": str(error)[:100]})
+        return 1
+    except RedisError, OSError, subprocess.SubprocessError:
         # Redis exceptions can include connection details; never log credentials.
         logger.error("Worker unavailable: Redis connection or heartbeat failed")
         return 1

@@ -116,6 +116,28 @@ func (r Repository) Decide(ctx context.Context, hash []byte, id string, version 
 	}
 	return r.Current(ctx, hash)
 }
+
+// RejectedError means the callback content failed independent validation; when the analysis was
+// the current processing attempt it is now FAILED with RESULT_REJECTED, never replayed for minutes.
+type RejectedError struct {
+	Reason    string
+	Persisted bool
+}
+
+func (e *RejectedError) Error() string { return "result rejected: " + e.Reason }
+
+// ErrStaleCallback covers obsolete, superseded or conflicting callbacks: nothing to retry.
+var ErrStaleCallback = errors.New("stale or conflicting callback")
+
+const rejectSQL = `UPDATE ocr_analyses SET status='FAILED',failure_code='RESULT_REJECTED',completed_at=now(),updated_at=now(),result_digest=$2 WHERE id=$1::uuid AND status='PROCESSING' AND result_digest IS NULL`
+
+// RejectMalformed records an undecodable callback for a processing analysis.
+func (r Repository) RejectMalformed(ctx context.Context, id string, body []byte) (bool, error) {
+	sum := sha256.Sum256(body)
+	tag, err := r.Pool.Exec(ctx, rejectSQL, id, hex.EncodeToString(sum[:]))
+	return err == nil && tag.RowsAffected() == 1, err
+}
+
 func (r Repository) Complete(ctx context.Context, id string, result Result) error {
 	// Lock application before analysis, matching academic/document updates.
 	tx, err := r.Pool.Begin(ctx)
@@ -130,29 +152,40 @@ func (r Repository) Complete(ctx context.Context, id string, result Result) erro
 	if _, err = tx.Exec(ctx, `SELECT id FROM applications WHERE id=$1::uuid FOR UPDATE`, app); err != nil {
 		return err
 	}
-	var status string
+	var status, qualification string
 	var expectedJSON []byte
 	var digest *string
 	var attempt int
-	if err = tx.QueryRow(ctx, `SELECT status,expected_subjects,result_digest,attempt_number FROM ocr_analyses WHERE id=$1::uuid FOR UPDATE`, id).Scan(&status, &expectedJSON, &digest, &attempt); err != nil {
+	if err = tx.QueryRow(ctx, `SELECT o.status,o.expected_subjects,o.result_digest,o.attempt_number,q.code FROM ocr_analyses o JOIN origin_qualifications q ON q.id=o.origin_qualification_id WHERE o.id=$1::uuid FOR UPDATE OF o`, id).Scan(&status, &expectedJSON, &digest, &attempt, &qualification); err != nil {
 		return err
 	}
 	var expected []Expected
 	if err = json.Unmarshal(expectedJSON, &expected); err != nil {
 		return err
 	}
-	if err = Validate(result, expected, r.Threshold); err != nil {
-		return err
-	}
 	sum := sha256.Sum256(jsonBytes(result))
 	h := hex.EncodeToString(sum[:])
+	if err = Validate(result, expected, r.Threshold, qualification); err != nil {
+		rejected := &RejectedError{Reason: err.Error()}
+		// Only the current attempt of a processing analysis becomes FAILED; late callbacks don't.
+		if status == "PROCESSING" && digest == nil && result.Attempt == attempt {
+			if _, err = tx.Exec(ctx, rejectSQL, id, h); err != nil {
+				return err
+			}
+			if err = tx.Commit(ctx); err != nil {
+				return err
+			}
+			rejected.Persisted = true
+		}
+		return rejected
+	}
 	var previous string
 	priorErr := tx.QueryRow(ctx, `SELECT callback_digest FROM ocr_analysis_attempts WHERE ocr_analysis_id=$1::uuid AND attempt_number=$2`, id, result.Attempt).Scan(&previous)
 	if priorErr == nil {
 		if previous == h {
 			return nil
 		}
-		return errors.New("conflicting attempt callback")
+		return ErrStaleCallback
 	}
 	if !errors.Is(priorErr, pgx.ErrNoRows) {
 		return priorErr
@@ -161,13 +194,13 @@ func (r Repository) Complete(ctx context.Context, id string, result Result) erro
 		if *digest == h {
 			return nil
 		}
-		return errors.New("conflicting result")
+		return ErrStaleCallback
 	}
 	if status != "PROCESSING" && status != "OBSOLETE" {
-		return errors.New("analysis not processing")
+		return ErrStaleCallback
 	}
 	if result.Attempt != attempt {
-		return errors.New("stale attempt")
+		return ErrStaleCallback
 	}
 	if _, err = tx.Exec(ctx, `INSERT INTO ocr_analysis_attempts(ocr_analysis_id,attempt_number,callback_digest,reported_status,failure_code,engine,engine_version) VALUES($1::uuid,$2,$3,$4,nullif($5,''),$6,$7)`, id, result.Attempt, h, result.Status, result.Failure, result.Engine, result.EngineVersion); err != nil {
 		return err

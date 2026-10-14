@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"bytes"
 	"context"
 	"crypto/subtle"
 	"encoding/json"
@@ -101,6 +102,14 @@ func (h Handler) RegisterPublic(m *http.ServeMux) {
 		})
 	}
 }
+
+// rejected logs only a static validation reason, never callback values or document text.
+func (h Handler) rejected(id, reason string, persisted bool) {
+	if h.Logger != nil {
+		h.Logger.Warn("OCR result rejected", "analysis_id", id, "reason", reason, "failure_code", "RESULT_REJECTED", "analysis_failed", persisted)
+	}
+}
+
 func (h Handler) RegisterInternal(m *http.ServeMux) {
 	auth := func(next http.HandlerFunc) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
@@ -125,17 +134,34 @@ func (h Handler) RegisterInternal(m *http.ServeMux) {
 		send(w, 200, map[string]string{"status": "ok"})
 	}))
 	m.HandleFunc("POST /internal/ocr/{id}/result", auth(func(w http.ResponseWriter, r *http.Request) {
-		var result Result
-		dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 65536))
-		dec.DisallowUnknownFields()
-		if dec.Decode(&result) != nil || dec.Decode(new(any)) != io.EOF {
-			w.WriteHeader(400)
-			return
-		}
+		id := r.PathValue("id")
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
-		if err := h.Repo.Complete(ctx, r.PathValue("id"), result); err != nil {
-			w.WriteHeader(422)
+		body, readErr := io.ReadAll(http.MaxBytesReader(w, r.Body, 65536))
+		var result Result
+		dec := json.NewDecoder(bytes.NewReader(body))
+		dec.DisallowUnknownFields()
+		if readErr != nil || dec.Decode(&result) != nil || dec.Decode(new(any)) != io.EOF {
+			persisted, err := h.Repo.RejectMalformed(ctx, id, body)
+			if err != nil {
+				w.WriteHeader(503)
+				return
+			}
+			h.rejected(id, "malformed callback", persisted)
+			send(w, 400, map[string]string{"status": "rejected", "code": "RESULT_REJECTED"})
+			return
+		}
+		if err := h.Repo.Complete(ctx, id, result); err != nil {
+			var rejected *RejectedError
+			switch {
+			case errors.As(err, &rejected):
+				h.rejected(id, rejected.Reason, rejected.Persisted)
+				send(w, 422, map[string]string{"status": "rejected", "code": "RESULT_REJECTED"})
+			case errors.Is(err, ErrStaleCallback) || errors.Is(err, pgx.ErrNoRows):
+				send(w, 409, map[string]string{"status": "stale"})
+			default:
+				w.WriteHeader(503)
+			}
 			return
 		}
 		if h.Logger != nil {

@@ -43,3 +43,9 @@ Les listes excluent référentiels désactivés et offres sans grille publiée ;
 Le schéma ne contient aucune donnée de seed. Le seed transactionnel est idempotent, sérialisé, accepté uniquement en development/test ; il ne remplace pas une grille publiée. Les grilles sont construites DRAFT, contrôlées, puis publiées et immuables. Une évolution crée une nouvelle campagne/grille ; remplacement d’une version publiée dans la même offre à cadrer avant CRUD administratif.
 
 Voir README pour les commandes. `infra/scripts/references_smoke.py` vérifie l’API réellement démarrée et imprime les réponses GL/DT_DWM et GL/BAC_E. Exécution hôte réussie : les réponses réelles GL/DT_DWM et GL/BAC_E figurent dans PHASE2_VALIDATION.
+
+## Constat documentaire : moyenne imprimée sur un relevé BAC (non officiel)
+
+Sur le seul relevé BAC réel disponible (BAC D scanné, anonymisé), la moyenne imprimée sur la ligne Total est **tronquée** à 2 décimales : 202 / 21 = 9,619… y est imprimé 9,61. C'est un constat sur un relevé de l'Office du Bac, **pas une règle officielle** : la méthode d'arrondi de l'Office n'a pas été confirmée et sa généralité reste à vérifier sur le corpus IFRI.
+
+Conséquence technique uniquement (ADR 081) : le contrôle OCR de cohérence de la ligne Total accepte la troncature ou l'arrondi au plus proche (demi vers le haut) à 2 décimales de Total Points ÷ Total Coeff, rien d'autre. Ce contrôle sert seulement à vérifier la lecture du tableau ; il ne définit ni la précision ni l'arrondi de la moyenne d'admission IFRI, que Go calcule en décimal exact (question IFRI « Arrondi et égalités » toujours ouverte).

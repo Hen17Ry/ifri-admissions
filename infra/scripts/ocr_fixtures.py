@@ -1,8 +1,14 @@
-"""Generate synthetic PDFs using subjects read from the real reference API; benchmark locally."""
+"""Regenerate the committed synthetic PDFs deterministically, verify them, then benchmark.
+
+Default mode "verify" writes into a temporary directory and fails if any regenerated file differs
+byte for byte from the committed fixture: a test run never rewrites tracked files. Mode "write"
+(make fixtures) deliberately refreshes the committed copies.
+"""
 
 import json
 import os
 import platform
+import tempfile
 from decimal import Decimal
 from pathlib import Path
 from time import perf_counter
@@ -12,20 +18,36 @@ import pymupdf
 import rapidfuzz
 from ifri_ocr.extraction import Tesseract, analyze
 
-ROOT = (
-    Path(__file__).resolve().parents[2]
-    if len(Path(__file__).resolve().parents) > 2
-    else Path("/app")
+HERE = Path(__file__).resolve()
+COMMITTED = Path(
+    os.environ.get(
+        "OCR_COMMITTED_FIXTURES",
+        "/app/tests/fixtures"
+        if Path("/app/tests/fixtures").is_dir()
+        else str(HERE.parents[2] / "services/ocr/tests/fixtures"),
+    )
 )
-OUT = Path(
-    os.environ.get("OCR_FIXTURE_OUTPUT", str(ROOT / "services/ocr/tests/fixtures"))
+MODE = os.environ.get("OCR_FIXTURE_MODE", "verify")
+OUT = (
+    COMMITTED
+    if MODE == "write"
+    else Path(os.environ.get("OCR_FIXTURE_OUTPUT", tempfile.mkdtemp(prefix="ifri-fixtures-")))
 )
 REFERENCE = os.environ.get("OCR_REFERENCE_URL", "http://localhost:18080")
+# Fixed metadata and trailer ID make the bytes a pure function of the drawn content.
+METADATA = {
+    "producer": "ifri-synthetic",
+    "creator": "ifri-synthetic",
+    "creationDate": "D:20260101000000Z",
+    "modDate": "D:20260101000000Z",
+    "title": "",
+    "author": "",
+    "subject": "",
+    "keywords": "",
+}
 
 
-def document(
-    subjects, *, missing=False, coefficient=False, ambiguous=False, accents=True
-):
+def document(subjects, *, missing=False, coefficient=False, ambiguous=False, accents=True):
     doc = pymupdf.open()
     page = doc.new_page(width=595, height=842)
     for x, text in [(40, "Matière"), (350, "Note"), (460, "Coef")]:
@@ -38,9 +60,7 @@ def document(
             import unicodedata
 
             name = "".join(
-                c
-                for c in unicodedata.normalize("NFKD", name)
-                if not unicodedata.combining(c)
+                c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c)
             )
         y = 135 + i * 40
         page.insert_text((40, y), name, fontsize=10)
@@ -56,6 +76,7 @@ def document(
 def main():
     OUT.mkdir(parents=True, exist_ok=True)
     measurements = []
+    drift = []
     for program, qualification in [
         ("GL", "BAC_C"),
         ("GL", "BAC_E"),
@@ -65,7 +86,8 @@ def main():
         ("SEIOT", "DT_EAP"),
     ]:
         with urlopen(
-            f"{REFERENCE}/api/v1/expected-subjects?campaign=DEV_LOCAL&program={program}&qualification={qualification}",
+            f"{REFERENCE}/api/v1/expected-subjects?campaign=DEV_LOCAL"
+            f"&program={program}&qualification={qualification}",
             timeout=5,
         ) as response:
             subjects = json.load(response)["expectedSubjects"]
@@ -103,9 +125,7 @@ def main():
             )
             if variant in {"scan", "degraded", "skew"}:
                 image = (
-                    doc[0].get_pixmap(
-                        matrix=pymupdf.Matrix(200 / 72, 200 / 72).prerotate(2)
-                    )
+                    doc[0].get_pixmap(matrix=pymupdf.Matrix(200 / 72, 200 / 72).prerotate(2))
                     if variant == "skew"
                     else doc[0].get_pixmap(dpi=20 if variant == "degraded" else 200)
                 )
@@ -122,8 +142,14 @@ def main():
                 doc.close()
                 doc = shifted
             filename = OUT / f"{program}-{qualification}-{variant}.pdf"
-            doc.save(filename, deflate=True)
+            doc.set_metadata(METADATA)
+            doc.save(filename, deflate=True, no_new_id=True, garbage=3)
             doc.close()
+            committed = COMMITTED / filename.name
+            if MODE != "write" and (
+                not committed.is_file() or committed.read_bytes() != filename.read_bytes()
+            ):
+                drift.append(filename.name)
             start = perf_counter()
             result = analyze(
                 filename,
@@ -155,16 +181,18 @@ def main():
         "rapidfuzz": rapidfuzz.__version__,
         "tesseract": Tesseract().version,
     }
-    (OUT / "benchmark.json").write_text(
-        json.dumps({"runtime": runtime, "measurements": measurements}, indent=2)
-    )
-    for temporary in OUT.glob("page-*.png"):
-        temporary.unlink()
     print(json.dumps(runtime))
-    for measurement in measurements:
+    for m in measurements:
         print(
-            f"{measurement['fixture']}: {measurement['status']} {measurement['failureCode']} {measurement['seconds']}s exactValues={measurement['exactValues']}"
+            f"{m['fixture']}: {m['status']} {m['failureCode']} {m['seconds']}s "
+            f"exactValues={m['exactValues']}"
         )
+    if drift:
+        raise AssertionError(
+            "Committed fixtures differ from the deterministic generator "
+            f"(run `make fixtures` deliberately): {', '.join(sorted(drift))}"
+        )
+    print(f"Fixture bytes: {'written' if MODE == 'write' else 'identical to committed copies'}")
     for measurement in measurements:
         name = measurement["fixture"]
         if name.endswith(

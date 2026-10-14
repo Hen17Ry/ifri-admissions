@@ -158,6 +158,8 @@ services:
       OCR_ANALYSIS_TIMEOUT_SECONDS: ${OCR_ANALYSIS_TIMEOUT_SECONDS:-120}
       OCR_PAGE_TIMEOUT_SECONDS: ${OCR_PAGE_TIMEOUT_SECONDS:-30}
       OCR_MAX_PAGES: ${OCR_MAX_PAGES:-10}
+      OCR_CELL_WORKERS: ${OCR_CELL_WORKERS:-}
+      OCR_RAPIDOCR_ENABLED: ${OCR_RAPIDOCR_ENABLED:-true}
     depends_on:
       redis: {condition: service_healthy}
       api: {condition: service_healthy}
@@ -180,13 +182,15 @@ services:
         ocr-runtime: service:ocr-worker
     environment:
       OCR_REFERENCE_URL: http://api:8080
-      OCR_FIXTURE_OUTPUT: /artifacts
+      # Generated PDFs stay in tmpfs; tracked fixtures are only compared byte for byte.
+      OCR_FIXTURE_OUTPUT: /tmp/ocr-artifacts
       OCR_MIN_CONFIDENCE: ${OCR_MIN_CONFIDENCE:-0.85}
       OCR_SCAN_DPI: ${OCR_SCAN_DPI:-300}
       OCR_SCAN_RETRY_DPI: ${OCR_SCAN_RETRY_DPI:-350}
       OCR_SCAN_MAX_PASSES: ${OCR_SCAN_MAX_PASSES:-3}
-    volumes:
-      - ./services/ocr/tests/fixtures:/artifacts
+      OCR_PAGE_TIMEOUT_SECONDS: ${OCR_PAGE_TIMEOUT_SECONDS:-30}
+      OCR_CELL_WORKERS: ${OCR_CELL_WORKERS:-}
+      OCR_RAPIDOCR_ENABLED: ${OCR_RAPIDOCR_ENABLED:-true}
     depends_on:
       api: {condition: service_healthy}
     networks: [internal]
