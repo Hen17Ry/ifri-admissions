@@ -166,7 +166,7 @@ func TestPostgresReferences(t *testing.T) {
 	})
 	t.Run("explicit refusal and campaign isolation", func(t *testing.T) {
 		_, err := pool.Exec(ctx, `INSERT INTO admission_campaigns(code,name,academic_year,numbering_year,starts_at,ends_at,status) VALUES ('TEST_OTHER','Test only','Test',2000,'2000-01-01','2100-01-01','OPEN');
-  INSERT INTO campaign_programs(campaign_id,program_id,available_seats) SELECT c.id,p.id,0 FROM admission_campaigns c CROSS JOIN programs p WHERE c.code='TEST_OTHER' AND p.code='GL';
+  INSERT INTO campaign_programs(campaign_id,program_id,available_seats) SELECT c.id,p.id,1 FROM admission_campaigns c CROSS JOIN programs p WHERE c.code='TEST_OTHER' AND p.code='GL';
   INSERT INTO rule_set_versions(campaign_program_id,version,source,status) SELECT cp.id,1,'Test fixture','DRAFT' FROM campaign_programs cp JOIN admission_campaigns c ON c.id=cp.campaign_id WHERE c.code='TEST_OTHER';
   INSERT INTO program_qualification_eligibilities(rule_set_version_id,origin_qualification_id,eligible) SELECT v.id,q.id,q.code='BAC_C' FROM rule_set_versions v JOIN campaign_programs cp ON cp.id=v.campaign_program_id JOIN admission_campaigns c ON c.id=cp.campaign_id CROSS JOIN origin_qualifications q WHERE c.code='TEST_OTHER' AND q.code IN ('BAC_C','DT_DWM');
   INSERT INTO expected_subject_rules(eligibility_id,subject_id,position) SELECT e.id,s.id,1 FROM program_qualification_eligibilities e JOIN rule_set_versions v ON v.id=e.rule_set_version_id JOIN campaign_programs cp ON cp.id=v.campaign_program_id JOIN admission_campaigns c ON c.id=cp.campaign_id CROSS JOIN subjects s WHERE c.code='TEST_OTHER' AND e.eligible AND s.code='MATH';
@@ -186,8 +186,10 @@ func TestPostgresReferences(t *testing.T) {
 			t.Fatalf("multiple open campaigns must require selection: %v", err)
 		}
 		offered, err := service.Programs(ctx, "TEST_OTHER", "")
-		if err != nil || len(offered) != 1 || offered[0].AvailableSeats == nil || *offered[0].AvailableSeats != 0 {
-			t.Fatalf("quota zero: %+v, %v", offered, err)
+		// An explicit quota is exposed as such, never confused with an unset one (since phase 9 a
+		// quota lies between 1 and 10,000).
+		if err != nil || len(offered) != 1 || offered[0].AvailableSeats == nil || *offered[0].AvailableSeats != 1 {
+			t.Fatalf("explicit quota: %+v, %v", offered, err)
 		}
 	})
 

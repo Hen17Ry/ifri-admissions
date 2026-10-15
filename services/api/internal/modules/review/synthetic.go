@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -19,13 +20,44 @@ var (
 	syntheticFirst = []string{"Afiavi", "Akossiwa", "Aurélie", "Bénédicte", "Comlan", "Djidjoho", "Élodie", "Fifamè", "Gisèle", "Hermann", "Ifèdé", "Jérôme", "Kocou", "Léa", "Mahougnon", "Noël", "Océane", "Pélagie", "Rodrigue", "Sèna", "Sènan", "Ulrich", "Yénoukoumè", "Zoé", "Éric"}
 )
 
-// GenerateSynthetic inserts count submitted applications into a campaign, set-based and in one
+// Synthetic describes one generation. Programs and Qualifications limit it to those codes and
+// Except leaves programs out (empty: all eligible pairs of the campaign). Tests may also fix,
+// per generated dossier (1-based order), the last name, the submission time and the grades and
+// coefficients by subject position; anything left empty is generated.
+type Synthetic struct {
+	Campaign             string
+	Count                int
+	Programs, Except     []string
+	Qualifications       []string
+	LastNames            []string
+	SubmittedAt          []time.Time
+	Grades, Coefficients [][]string
+}
+
+// GenerateSynthetic inserts submitted applications into a campaign, set-based and in one
 // transaction, through every phase 6 constraint (snapshot, documents, analysis, numbers): the
 // database checks them at commit exactly as for a real submission. Documents point to no stored
 // object, so their previews and OCR proofs are reported unavailable. Development and test only.
-func GenerateSynthetic(ctx context.Context, pool *pgxpool.Pool, campaign string, count int) (int, error) {
+func GenerateSynthetic(ctx context.Context, pool *pgxpool.Pool, o Synthetic) (int, error) {
+	campaign, count := o.Campaign, o.Count
 	if count < 1 || count > 20000 {
 		return 0, errors.New("count must be between 1 and 20000")
+	}
+	nonNil := func(v []string) []string {
+		if v == nil {
+			return []string{}
+		}
+		return v
+	}
+	matrix := func(v [][]string) [][]string {
+		if len(v) == 0 {
+			return [][]string{{""}}
+		}
+		return v
+	}
+	dates := o.SubmittedAt
+	if dates == nil {
+		dates = []time.Time{}
 	}
 	tx, err := pool.Begin(ctx)
 	if err != nil {
@@ -43,6 +75,20 @@ func GenerateSynthetic(ctx context.Context, pool *pgxpool.Pool, campaign string,
 	if err = tx.QueryRow(ctx, `SELECT count(*) FROM candidates WHERE email LIKE 'synthetic-%@example.invalid'`).Scan(&offset); err != nil {
 		return 0, err
 	}
+	pairFilter := `cp.campaign_id=$1::uuid AND cp.enabled AND (cardinality($6::text[])=0 OR p.code=ANY($6::text[])) AND NOT p.code=ANY($7::text[])
+		  AND (cardinality($8::text[])=0 OR q.code=ANY($8::text[]))`
+	var pairs int
+	if err = tx.QueryRow(ctx, `SELECT count(*) FROM campaign_programs cp JOIN programs p ON p.id=cp.program_id AND p.enabled
+	 JOIN rule_set_versions v ON v.campaign_program_id=cp.id AND v.status='PUBLISHED'
+	 JOIN program_qualification_eligibilities e ON e.rule_set_version_id=v.id AND e.eligible
+	 JOIN origin_qualifications q ON q.id=e.origin_qualification_id AND q.enabled
+	 WHERE `+strings.NewReplacer("$6", "$2", "$7", "$3", "$8", "$4").Replace(pairFilter),
+		campaignID, nonNil(o.Programs), nonNil(o.Except), nonNil(o.Qualifications)).Scan(&pairs); err != nil {
+		return 0, err
+	}
+	if pairs == 0 {
+		return 0, errors.New("no eligible program and qualification for this campaign and filter")
+	}
 	steps := []struct {
 		sql  string
 		args []any
@@ -55,14 +101,14 @@ func GenerateSynthetic(ctx context.Context, pool *pgxpool.Pool, campaign string,
 		  JOIN rule_set_versions v ON v.campaign_program_id=cp.id AND v.status='PUBLISHED'
 		  JOIN program_qualification_eligibilities e ON e.rule_set_version_id=v.id AND e.eligible
 		  JOIN origin_qualifications q ON q.id=e.origin_qualification_id AND q.enabled
-		  WHERE cp.campaign_id=$1::uuid AND cp.enabled), total AS (SELECT count(*) AS n FROM pairs)
-		 SELECT g+$2 AS n,gen_random_uuid() AS candidate_id,gen_random_uuid() AS application_id,
-		  ($4::text[])[1+((g*7)%cardinality($4::text[]))] AS last_name,($5::text[])[1+((g*13)%cardinality($5::text[]))] AS first_names,
+		  WHERE ` + pairFilter + `), total AS (SELECT count(*) AS n FROM pairs)
+		 SELECT g AS idx,g+$2 AS n,gen_random_uuid() AS candidate_id,gen_random_uuid() AS application_id,
+		  coalesce(($9::text[])[g],($4::text[])[1+((g*7)%cardinality($4::text[]))]) AS last_name,($5::text[])[1+((g*13)%cardinality($5::text[]))] AS first_names,
 		  'synthetic-'||(CASE WHEN (g+$2)%50=0 THEN g+$2-1 ELSE g+$2 END)||'@example.invalid' AS email,
 		  '+22990'||lpad((CASE WHEN (g+$2)%70=0 THEN g+$2-1 ELSE g+$2 END)::text,8,'0') AS phone,
-		  now()-(((g+$2)%720)*interval '1 hour')-((g%60)*interval '1 minute') AS submitted_at,pairs.*
+		  coalesce(($10::timestamptz[])[g],now()-(((g+$2)%720)*interval '1 hour')-((g%60)*interval '1 minute')) AS submitted_at,pairs.*
 		 FROM generate_series(1,$3) g CROSS JOIN total JOIN pairs ON pairs.rn=1+(g%total.n)`,
-			[]any{campaignID, offset, count, syntheticLast, syntheticFirst}},
+			[]any{campaignID, offset, count, syntheticLast, syntheticFirst, nonNil(o.Programs), nonNil(o.Except), nonNil(o.Qualifications), nonNil(o.LastNames), dates}},
 		{`INSERT INTO candidates(id,last_name,first_names,email,phone) SELECT candidate_id,last_name,first_names,email,phone FROM syn`, nil},
 		{`INSERT INTO applications(id,candidate_id,campaign_id,campaign_program_id,origin_qualification_id,graduation_year)
 		 SELECT application_id,candidate_id,$1::uuid,campaign_program_id,qualification_id,2025 FROM syn`, []any{campaignID}},
@@ -73,7 +119,7 @@ func GenerateSynthetic(ctx context.Context, pool *pgxpool.Pool, campaign string,
 		{`INSERT INTO application_documents(id,application_id,document_type,current_version_id) SELECT document_id,application_id,type,version_id FROM syn_docs`, nil},
 		{`INSERT INTO document_versions(id,application_document_id,version_number,storage_key,original_filename,content_type,size_bytes,sha256)
 		 SELECT version_id,document_id,1,'applications/'||application_id||'/documents/'||type||'/'||version_id||'.pdf','document-synthetique.pdf','application/pdf',1000,sha FROM syn_docs`, nil},
-		{`CREATE TEMP TABLE syn_analyses ON COMMIT DROP AS SELECT s.application_id,gen_random_uuid() AS analysis_id,d.version_id,s.grid_id,s.program_id,s.qualification_id,
+		{`CREATE TEMP TABLE syn_analyses ON COMMIT DROP AS SELECT s.idx,s.application_id,gen_random_uuid() AS analysis_id,d.version_id,s.grid_id,s.program_id,s.qualification_id,
 		  (SELECT jsonb_agg(jsonb_build_object('id',sub.id,'code',sub.code,'name',sub.name,'position',r.position) ORDER BY r.position)
 		   FROM expected_subject_rules r JOIN subjects sub ON sub.id=r.subject_id WHERE r.eligibility_id=s.eligibility_id) AS expected
 		 FROM syn s JOIN syn_docs d ON d.application_id=s.application_id AND d.type='TRANSCRIPT'`, nil},
@@ -87,9 +133,9 @@ func GenerateSynthetic(ctx context.Context, pool *pgxpool.Pool, campaign string,
 		   'grade',jsonb_build_object('x0',0.5,'y0',v.y,'x1',0.6,'y1',v.y+0.03),
 		   'coefficient',jsonb_build_object('x0',0.62,'y0',v.y,'x1',0.7,'y1',v.y+0.03))
 		 FROM syn_analyses a CROSS JOIN LATERAL jsonb_array_elements(a.expected) e
-		 CROSS JOIN LATERAL (SELECT round((800+abs(hashtext(a.analysis_id::text||(e->>'position')))%1000)::numeric/100,2) AS grade,
-		  (1+abs(hashtext(a.analysis_id::text||'c'||(e->>'position')))%4)::numeric AS coef,
-		  round(0.3+(e->>'position')::numeric*0.05,3) AS y) v`, nil},
+		 CROSS JOIN LATERAL (SELECT coalesce(nullif(($1::text[])[a.idx][(e->>'position')::int],'')::numeric,round((800+abs(hashtext(a.analysis_id::text||(e->>'position')))%1000)::numeric/100,2)) AS grade,
+		  coalesce(nullif(($2::text[])[a.idx][(e->>'position')::int],'')::numeric,(1+abs(hashtext(a.analysis_id::text||'c'||(e->>'position')))%4)::numeric) AS coef,
+		  round(0.3+(e->>'position')::numeric*0.05,3) AS y) v`, []any{matrix(o.Grades), matrix(o.Coefficients)}},
 		{`UPDATE ocr_analyses SET candidate_confirmation='CONFIRMED',confirmed_at=now(),result_digest=encode(sha256(convert_to(id::text,'UTF8')),'hex')
 		 WHERE id IN (SELECT analysis_id FROM syn_analyses)`, nil},
 		{`INSERT INTO application_submissions(application_id,campaign_id,campaign_program_id,program_id,origin_qualification_id,graduation_year,last_name,first_names,email,phone,

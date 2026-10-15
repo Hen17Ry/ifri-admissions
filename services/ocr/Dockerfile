@@ -5,7 +5,8 @@ ENV PYTHONUNBUFFERED=1 PYTHONDONTWRITEBYTECODE=1 OMP_THREAD_LIMIT=1 UV_COMPILE_B
 # onnxruntime 1.31 Linux wheels ship 1DS telemetry (HTTPS to a Microsoft collector): disabled.
 ENV ORT_DISABLE_TELEMETRY=1
 WORKDIR /app
-RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng && rm -rf /var/lib/apt/lists/*
+# fonts-dejavu-core: list exports (PDF) need a font covering French and Beninese names.
+RUN apt-get update && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-fra tesseract-ocr-eng fonts-dejavu-core && rm -rf /var/lib/apt/lists/*
 RUN python -m compileall -q -j 0 /usr/local/lib/python3.14
 RUN python -m pip install --no-cache-dir uv==0.12.3
 COPY pyproject.toml uv.lock ./

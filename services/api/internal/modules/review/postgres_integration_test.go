@@ -261,7 +261,7 @@ func TestPostgresReview(t *testing.T) {
 	defer cancel()
 	e := setup(t, ctx)
 	started := time.Now()
-	n, err := GenerateSynthetic(ctx, e.pool, "DEV_LOCAL", 5000)
+	n, err := GenerateSynthetic(ctx, e.pool, Synthetic{Campaign: "DEV_LOCAL", Count: 5000})
 	if err != nil || n != 5000 {
 		t.Fatal("synthetic data", n, err)
 	}
@@ -741,9 +741,23 @@ func TestPostgresReview(t *testing.T) {
 
 	t.Run("ranking freeze blocks every review change", func(t *testing.T) {
 		id, v := e.firstDossier(`r.status='TO_REVIEW'`)
-		if _, err := e.pool.Exec(ctx, `INSERT INTO ranking_freezes(campaign_program_id) SELECT campaign_program_id FROM application_reviews WHERE application_id=$1::uuid`, id); err != nil {
-			t.Fatal(err)
+		// Since migration 00009 a freeze requires its preconditions (all dossiers decided, campaign
+		// closed): to test the phase 8 lock alone, the freeze guards are set aside for this row.
+		bypass := func(statement string, args ...any) {
+			t.Helper()
+			for _, s := range []string{`ALTER TABLE ranking_freezes DISABLE TRIGGER USER`, statement, `ALTER TABLE ranking_freezes ENABLE TRIGGER USER`} {
+				var with []any
+				if s == statement {
+					with = args
+				}
+				if _, err := e.pool.Exec(ctx, s, with...); err != nil {
+					t.Fatal(err)
+				}
+			}
 		}
+		bypass(`INSERT INTO ranking_freezes(campaign_program_id,frozen_by,available_seats,ranked_count,not_ranked_count,admitted_count,calculation_version)
+		 SELECT campaign_program_id,$2::uuid,1,0,0,0,1 FROM application_reviews WHERE application_id=$1::uuid`, id, director.principal.UserID)
+		t.Cleanup(func() { bypass(`DELETE FROM ranking_freezes`) })
 		if _, err := e.svc.Transition(ctx, agentA.principal, id, "claim", Action{Version: v}); problemCode(err) != "REVIEW_FROZEN" {
 			t.Fatal("claim after freeze", err)
 		}
@@ -761,8 +775,12 @@ func TestPostgresReview(t *testing.T) {
 				t.Fatal("accepted:", statement)
 			}
 		}
-		if _, err := e.provider.Down(ctx); err == nil || !strings.Contains(err.Error(), "rollback refused") {
+		// 00009 (no ranking yet) rolls back; 00008 refuses with review history.
+		if _, err := e.provider.DownTo(ctx, 7); err == nil || !strings.Contains(err.Error(), "Review history exists") {
 			t.Fatal("migration 00008 rollback accepted with review history", err)
+		}
+		if _, err := e.provider.Up(ctx); err != nil {
+			t.Fatal(err)
 		}
 	})
 
@@ -793,10 +811,10 @@ func TestPostgresReviewMigrationRoundTrip(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 	defer cancel()
 	e := setup(t, ctx)
-	if _, err := GenerateSynthetic(ctx, e.pool, "DEV_LOCAL", 20); err != nil {
+	if _, err := GenerateSynthetic(ctx, e.pool, Synthetic{Campaign: "DEV_LOCAL", Count: 20}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.provider.Down(ctx); err != nil {
+	if _, err := e.provider.DownTo(ctx, 7); err != nil {
 		t.Fatal("rollback with only creation events", err)
 	}
 	if e.count(`SELECT count(*) FROM information_schema.tables WHERE table_schema=current_schema() AND table_name IN ('application_reviews','application_corrections','ocr_proof_images')`) != 0 {

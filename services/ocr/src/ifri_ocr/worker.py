@@ -132,6 +132,17 @@ def main() -> int:
             daemon=True,
         )
         proofs.start()
+        # Ranking list exports (PDF): their own stream, connection and loop as well.
+        from ifri_ocr.exports import FONT, FONT_BOLD, ExportClient, serve_exports
+
+        if not (FONT.is_file() and FONT_BOLD.is_file()):
+            raise RuntimeError("DejaVu fonts missing: list exports cannot be rendered")
+        exports = Thread(
+            target=serve_exports,
+            args=(connect(config), ExportClient(base, secret), consumer, stop),
+            daemon=True,
+        )
+        exports.start()
         logger.info("Worker ready; hybrid extraction enabled", extra={"engine": reader.name})
         while not stop.is_set():
             reclaimed = client.xautoclaim(

@@ -31,10 +31,10 @@ Un compte porte **un seul rôle** (ADR 110). Une personne qui exerce deux foncti
 
 | Rôle | Libellé | Permissions |
 |---|---|---|
-| `REVIEWER` | Agent du secrétariat exécutif | `dashboard.view`, `applications.read`, `review.claim`, `review.decide`, `corrections.propose`, `ranking.read` |
-| `REVIEW_LEAD` | Responsable du secrétariat exécutif | celles de l'agent + `review.reassign`, `review.revert` |
-| `DEPUTY_DIRECTOR` | Directeur adjoint | `dashboard.view`, `applications.read`, `corrections.decide`, `ranking.read` |
-| `DIRECTOR` | Directeur | `dashboard.view`, `applications.read`, `audit.read` (lecture seule), `ranking.read`, `selection.validate` (phase 9) |
+| `REVIEWER` | Agent du secrétariat exécutif | `dashboard.view`, `applications.read`, `review.claim`, `review.decide`, `corrections.propose` |
+| `REVIEW_LEAD` | Responsable du secrétariat exécutif | celles de l'agent + `review.reassign`, `review.revert`, `ranking.read` (phase 9) |
+| `DEPUTY_DIRECTOR` | Directeur adjoint | `dashboard.view`, `applications.read`, `corrections.decide`, `ranking.read`, `selection.manage`, `selection.export` (phase 9) |
+| `DIRECTOR` | Directeur | `dashboard.view`, `applications.read`, `audit.read` (lecture seule), `ranking.read`, `ranking.configure`, `selection.validate`, `selection.export` (phase 9) |
 | `SUPER_ADMIN` | Administrateur technique | `dashboard.view`, `accounts.read`, `accounts.manage`, `audit.read` |
 
 - **Exclusivité** : REVIEWER, REVIEW_LEAD, DEPUTY_DIRECTOR et DIRECTOR sont mutuellement exclusifs ; SUPER_ADMIN est exclusif de tout rôle métier. Contrôle en Go (`resolveGrants`, 422 sur le champ `grants`) et par le trigger `guard_single_role` (verrou de la ligne du compte, puis refus d'un second rôle distinct non révoqué). La migration 00008 refuse de s'appliquer si un compte détient déjà plusieurs rôles.

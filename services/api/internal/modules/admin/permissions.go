@@ -28,9 +28,12 @@ const (
 	PermReviewRevert       Permission = "review.revert"   // send a decided dossier back to review
 	PermCorrectionsPropose Permission = "corrections.propose"
 	PermCorrectionsDecide  Permission = "corrections.decide"
-	// Declared for phase 9: the ranking is computed automatically, then validated.
-	PermRankingRead       Permission = "ranking.read"
-	PermSelectionValidate Permission = "selection.validate"
+	// Phase 9: the ranking is computed automatically, frozen and validated by the Director.
+	PermRankingRead       Permission = "ranking.read"       // provisional and frozen ranking
+	PermRankingConfigure  Permission = "ranking.configure"  // seats and minimum average, until the freeze
+	PermSelectionValidate Permission = "selection.validate" // freeze and validation
+	PermSelectionManage   Permission = "selection.manage"   // withdrawals and promotions after the freeze
+	PermSelectionExport   Permission = "selection.export"   // public and internal lists
 )
 
 type Role string
@@ -44,16 +47,16 @@ const (
 	RoleDirector       Role = "DIRECTOR"        // reads everything, validates the final selection
 )
 
-var reviewer = []Permission{PermDashboard, PermApplicationsRead, PermReviewClaim, PermReviewDecide, PermCorrectionsPropose, PermRankingRead}
+var reviewer = []Permission{PermDashboard, PermApplicationsRead, PermReviewClaim, PermReviewDecide, PermCorrectionsPropose}
 
 // RolePermissions is the whole RBAC policy.
 var RolePermissions = map[Role][]Permission{
 	RoleSuperAdmin:     {PermDashboard, PermAccountsRead, PermAccountsManage, PermAuditRead},
 	RoleReviewer:       reviewer,
-	RoleReviewLead:     append(append([]Permission{}, reviewer...), PermReviewReassign, PermReviewRevert),
-	RoleDeputyDirector: {PermDashboard, PermApplicationsRead, PermCorrectionsDecide, PermRankingRead},
+	RoleReviewLead:     append(append([]Permission{}, reviewer...), PermReviewReassign, PermReviewRevert, PermRankingRead),
+	RoleDeputyDirector: {PermDashboard, PermApplicationsRead, PermCorrectionsDecide, PermRankingRead, PermSelectionManage, PermSelectionExport},
 	// The audit holds the technical administrator's own actions: the Director reads it too.
-	RoleDirector: {PermDashboard, PermApplicationsRead, PermAuditRead, PermRankingRead, PermSelectionValidate},
+	RoleDirector: {PermDashboard, PermApplicationsRead, PermAuditRead, PermRankingRead, PermRankingConfigure, PermSelectionValidate, PermSelectionExport},
 }
 
 // GlobalRoles can never be limited to programs. The phase 7 scope mechanism stays available
@@ -63,7 +66,8 @@ var GlobalRoles = map[Role]bool{RoleSuperAdmin: true, RoleDeputyDirector: true, 
 // ProgramScoped permissions apply per program; the others are global by nature.
 var ProgramScoped = map[Permission]bool{
 	PermApplicationsRead: true, PermReviewClaim: true, PermReviewDecide: true, PermReviewReassign: true, PermReviewRevert: true,
-	PermCorrectionsPropose: true, PermCorrectionsDecide: true, PermRankingRead: true, PermSelectionValidate: true,
+	PermCorrectionsPropose: true, PermCorrectionsDecide: true, PermRankingRead: true, PermRankingConfigure: true, PermSelectionValidate: true,
+	PermSelectionManage: true, PermSelectionExport: true,
 }
 
 func KnownRole(r Role) bool { _, ok := RolePermissions[r]; return ok }

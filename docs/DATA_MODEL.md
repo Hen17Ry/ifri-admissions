@@ -212,3 +212,39 @@ Migration `00008_application_review.sql` ; 00001–00007 inchangées. Contrat : 
 - **Recherche** : fonction immuable `ifri_fold(text)` et colonne générée `application_submissions.name_key` ; index sur la date de soumission, l'email, la qualification, le statut, l'agent, la moyenne effective et (filière, statut).
 
 Le snapshot de soumission et `applications.state` ne changent jamais. Le down de 00008 refuse de s'exécuter dès qu'une revue a vécu (événement autre que `CREATED`), ou s'il existe une correction, une preuve, un gel ou une attribution d'un nouveau rôle.
+
+## Phase 9 — classement, gel et sélection (migration 00009)
+
+Migration `00009_ranking_selection.sql` ; 00001–00008 inchangées. Contrat : RANKING_SELECTION ; décisions : ADR 122–131.
+
+- **`ranking_math_subjects`** (`code`) : codes des matières mathématiques de départage (`MATH`, `APPLIED_MATH`) ; seul endroit à modifier ; jamais supprimées.
+- **`campaign_programs`** :
+  - `available_seats` (quota de la phase 2) désormais borné de 1 à 10 000 ;
+  - nouvelle colonne `minimum_average numeric(4,2)` (0 à 20, facultative) ;
+  - trigger qui refuse tout changement de l'un ou l'autre après le gel.
+- **`ranking_freezes`** complété :
+  - `available_seats`, `minimum_average` appliqués ;
+  - `ranked_count`, `not_ranked_count`, `admitted_count` (= min(places, classés)), `calculation_version` ;
+  - `frozen_by` obligatoire.
+
+  Les préconditions (période terminée, dossiers tous décidés, aucune correction en attente, places définies et identiques à l'offre) sont revérifiées par trigger à l'insertion. Un contrôle différé au commit vérifie le snapshot.
+- **`ranking_entries`** (snapshot immuable, clé (offre, dossier)) :
+  - `position`, `rank` (NULL = Non classé) ;
+  - sommes exactes, `average numeric(32,30)`, `average_is_exact`, `average_display` ;
+  - `math_subject_code`, `math_grade`, `math_tiebreak` (`NOT_NEEDED`, `COMPARED`, `SKIPPED`) ;
+  - `submitted_at`, `application_number`, `decisive_criterion` (NULL pour le premier) ;
+  - `initial_decision` (`ADMITTED`, `WAITLISTED`, `NOT_RANKED`).
+
+  Les lignes ne s'écrivent que dans la transaction du gel et recopient exactement un dossier validé ; ni UPDATE, ni DELETE, ni TRUNCATE.
+- **`selection_events`** (ajout seul) :
+  - `list_version` (≥ 2, unique par offre), `event_type` (`WITHDRAWN` avec motif, ou `PROMOTED`) ;
+  - candidat du snapshot, auteur, date.
+
+  Le trigger vérifie sous verrou la version suivante, l'état courant (`selection_state`), la place libre et l'ordre de la liste d'attente.
+- **`selection_exports`** :
+  - demandes de PDF : version, variante (`PUBLIC`, `INTERNAL`) ;
+  - statut (`PENDING` puis `READY` ou `FAILED`), clé privée, SHA-256, taille, demandeur et dates ;
+  - transition unique, jamais supprimées.
+- **Fonction `selection_state(offre, dossier)`** : décision courante = désisté si un désistement existe, sinon admis si une promotion existe, sinon la décision initiale.
+
+Le down de 00009 refuse de s'exécuter dès qu'un gel, un export ou une moyenne minimale existe.

@@ -55,7 +55,7 @@ Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les cri
 - [ ] Obtenir grille officielle complète : admissibilité et matières par chaque série/filière, au-delà de la matrice phase 2 fournie (C/D/E exactes, SI et IA désormais précisées).
 - [ ] Confirmer un dossier/une filière par candidat/campagne et échelle des notes.
 - [ ] Choisir authentification candidat, vérifier droits Reviewer et périmètres admin.
-- [ ] Définir quotas, règles d’égalité et validation/publication des résultats.
+- [x] Définir quotas, règles d’égalité et validation des résultats (phase 9 : places et seuil par le Directeur, départage IFRI, gel). Publication aux candidats hors périmètre.
 - [ ] Cadrer réouverture, correction hors délai et transcription manuelle OCR.
 - [ ] Fixer limites PDF, conservation/effacement, RPO/RTO, seuils et essais sur preuves mesurées.
 - [ ] Fournir éléments de marque officiels et corpus autorisé/anonymisé pour benchmark.
@@ -69,7 +69,7 @@ Rapport de preuves et limitations : `docs/BOOTSTRAP_VALIDATION.md`. Tous les cri
 - [ ] Benchmark OCR puis choix moteur et preuves par champ.
 - [ ] Confirmation/refus, lecture seule et moyenne backend exacte.
 - [ ] Soumission, revue, demande de correction/rejet et audit.
-- [ ] Classements par campagne/filière, quotas, départage et décision humaine.
+- [x] Classements par campagne/filière, quotas, départage et décision humaine (phase 9).
 - [ ] E2E, accessibilité, sécurité, restauration et préparation production.
 
 Chaque ligne est un chantier à autoriser et découper ; cette liste ne constitue pas une autorisation de commencer la phase suivante.
@@ -143,7 +143,7 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 
 - [x] **Phase 8** : la fiche admin doit afficher le lien de doublon **dans les deux sens** ; la première candidature d'une paire ne porte aucun drapeau (requête sur `related_application_id`).
 - [x] **Phase 8** : statuts de revue dans une table séparée et historisée ; une réouverture éventuelle sera un événement audité, jamais une modification de la ligne `applications` (ADR 088). Statuts de sélection : phase 9.
-- [ ] **Phase 9** : classement sur la moyenne **effective** de la revue (ADR 114) puis, à égalité, sur les fractions exactes par produit en croix (ADR 086) ; règle d'arrondi et de départage IFRI à obtenir.
+- [x] **Phase 9** : classement sur la moyenne **effective** de la revue (ADR 114), fractions comparées par produit en croix ; départage IFRI confirmé (ADR 122).
 - [ ] **Phase 10 ou plus tard** : consultation du récépissé par numéro + code envoyé par email, pour un candidat qui a perdu son cookie ou changé de navigateur.
 - [ ] **Repli manuel** (ADR 092) : politique et seuil d'échecs d'analyse à définir avec l'IFRI avant implémentation.
 - [ ] **Avant production** : `numbering_year` de chaque campagne réelle à confirmer ; politique de doublons à trancher par l'IFRI.
@@ -174,12 +174,40 @@ Avant production : corpus BAC/DT réel anonymisé, calibration des seuils, audit
 - [x] Worker : boucle de preuves séparée (`ifri_ocr.proofs`), rendu depuis la version exacte et les coordonnées stockées.
 - [x] Interface : tableau de bord, liste, dossier, file des corrections, sélecteur de rôle unique ; UI UX Pro Max (`pages/admin-review.md`).
 - [x] Tests : Go unitaires et intégration (PostgreSQL + Redis réels), pytest, Vitest, Playwright (deux agents et un DA, aperçu PDF, preuve OCR, temps de la liste sur 5 001 dossiers) ; `make check` vert.
-- [ ] Commit des changements de la phase 8 (par l'utilisateur).
+- [x] Commit des changements de la phase 8 (par l'utilisateur, 48a57c8).
 - [ ] **Base de dev** : la migration 00008 s'applique à la base de dev au prochain `make check` ; recréer son volume reste à faire par l'utilisateur pour repartir propre (PHASE7_VALIDATION).
 
 ### Suites notées pendant la phase 8
 
-- [ ] **Phase 9** : écrire dans `ranking_freezes` au gel d'une filière (les triggers de revue et de correction s'y fient déjà) ; ne classer que les dossiers `VALIDATED` et admissibles ; validation par `selection.validate` (Directeur).
+- [x] **Phase 9** : écrire dans `ranking_freezes` au gel d'une filière (les triggers de revue et de correction s'y fient déjà) ; ne classer que les dossiers `VALIDATED` ; validation par `selection.validate` (Directeur).
 - [ ] **IFRI** : valider la liste provisoire des motifs de rejet (ROADMAP, question 6).
 - [ ] **Phase 10** : la CSP de production de la SPA doit garder `frame-src 'self'` (ou `default-src 'self'`) pour l'aperçu PDF ; vérifier l'aperçu intégré dans les navigateurs cibles (Chromium headless ne l'affiche pas) ; nettoyage des images de preuve orphelines si une politique de conservation l'exige.
 - [ ] **Après la phase 8** : `pg_trgm` à réévaluer si la recherche par sous-chaîne dépasse les temps mesurés sur les volumes réels.
+
+## Phase 9 — classement, gel et sélection (14 octobre 2026)
+
+- [x] Migration 00009 :
+  - `ranking_math_subjects` ;
+  - places bornées et moyenne minimale, figées après le gel ;
+  - en-tête de gel complété, snapshot `ranking_entries`, `selection_events`, `selection_exports` ;
+  - préconditions et cohérence revérifiées en base, ajout seul ;
+  - down refusé dès qu'un gel, un export ou un seuil existe.
+- [x] Module Go `selection` :
+  - classement pur et exact ;
+  - classement provisoire, réglages, gel transactionnel, désistements et promotions ;
+  - exports CSV et demandes PDF, routes internes, redistribution.
+- [x] Lecture du gel après le verrou de revue (ADR 127, correctif de la phase 8).
+- [x] Worker :
+  - boucle d'exports dédiée, rendu PyMuPDF et DejaVu ;
+  - boucle Redis commune aux preuves et aux exports ;
+  - `fonts-dejavu-core` dans l'image.
+- [x] Interface `/admin/classement` (UI UX Pro Max, `pages/admin-selection.md`), entrée « Classement ».
+- [x] Outillage : filtres et valeurs imposées du générateur, `api dev close-campaign` ; IA exclue des 5 000 dossiers de `make e2e`.
+- [x] Tests : unitaires (critères, bornes, états, documents, CSV), intégration PostgreSQL et Redis, pytest des exports, Vitest, Playwright ; `make check` vert.
+- [ ] Commit des changements de la phase 9 (par l'utilisateur).
+
+### Suites notées pendant la phase 9
+
+- [ ] **IFRI** : critère mathématique absent (règle par groupe ou alternative) et conduite à tenir en cas de fraude après le gel (ROADMAP, questions 3 et 4).
+- [ ] **Consultation des résultats par le candidat** et notifications : hors périmètre, à cadrer (numéro + code par email, phase 10 ou suivante).
+- [ ] **Phase 10** : conservation des exports PDF et du journal ; administration des dates de campagne (aujourd'hui seulement par seed ou `api dev close-campaign` en développement).

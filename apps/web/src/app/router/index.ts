@@ -41,6 +41,12 @@ export const router = createRouter({
       meta: { admin: 'corrections.decide' },
     },
     {
+      path: '/admin/classement',
+      name: 'admin-selection',
+      component: () => import('@/pages/admin/AdminSelectionPage.vue'),
+      meta: { admin: 'ranking.read' },
+    },
+    {
       path: '/admin/connexion',
       name: 'admin-login',
       component: () => import('@/pages/admin/AdminLoginPage.vue'),

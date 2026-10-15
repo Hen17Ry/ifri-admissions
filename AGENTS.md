@@ -72,3 +72,34 @@ Lire ADMIN_SECURITY et PHASE7_VALIDATION. Aucune inscription publique ; premier 
 ## Phase 8 — back-office des dossiers soumis
 
 Lire ADMIN_REVIEW et PHASE8_VALIDATION. Rôles IFRI, **un seul par compte** (Go + trigger `guard_single_role`) : agent et responsable du secrétariat exécutif, Directeur adjoint, Directeur (`audit.read` en lecture seule), administrateur technique sans accès aux dossiers. Revue dans `application_reviews` + `application_review_events` (une version = un événement), jamais dans `applications` ni dans le snapshot. Seul l'agent en charge valide, rejette (motif fermé de `review_rejection_reasons` + commentaire) ou propose une correction ; seul le Directeur adjoint décide une correction, jamais son auteur ; validation bloquée par une correction en attente. Moyenne effective = fraction exacte depuis le snapshot + dernières corrections approuvées, revérifiée par trigger ; **la phase 9 classe dessus**. Toute écriture de revue verrouille la ligne, vérifie version, agent et gel (`ranking_frozen`), écrit la version, l'événement et l'audit dans la même transaction. `audit.RecordAccess` à chaque dossier, document et preuve. Preuves OCR : file `ifri:ocr:proofs:v1` et boucle de worker séparées, version exacte du document et coordonnées stockées, image privée servie par l'API. Seule la route de contenu PDF peut être encadrée (`frame-ancestors 'self'`). Données synthétiques : `api dev synthetic-applications --confirm`, jamais en production. Aucun classement, sélection, export ni notification dans cette phase.
+
+## Phase 9 — classement, gel et sélection
+
+Lire RANKING_SELECTION et PHASE9_VALIDATION. Seuls les dossiers `VALIDATED` sont classés.
+
+Ordre : moyenne effective par produit en croix (jamais la colonne décimale), puis note effective de mathématiques, puis date de soumission, puis numéro.
+- Les matières mathématiques sont identifiées par code dans `ranking_math_subjects`.
+- Le critère mathématique est sauté pour tout le groupe d'égalité exacte dès qu'un membre n'en a pas (règle par groupe, l'application deux à deux n'est pas transitive).
+- Le critère décisif est enregistré et affiché.
+
+Places (1 à 10 000) et moyenne minimale facultative (« au moins égale », Non classé sans rang) : le Directeur les saisit jusqu'au gel, et chaque changement est audité.
+
+Gel en une transaction :
+- verrous dans l'ordre campagne, offre, revues de la filière ;
+- préconditions revérifiées par trigger ;
+- snapshot `ranking_entries` écrit seulement par la transaction du gel et vérifié au commit ;
+- aucun dégel.
+
+Après le gel, `selection_events` est en ajout seul :
+- désistement motivé, ou promotion du seul premier en attente quand une place est libre ;
+- version de liste contrôlée ;
+- décision courante déduite des événements, snapshot jamais modifié.
+
+Exports seulement après le gel :
+- public : admis et liste d'attente, sans moyenne ;
+- interne : tout ;
+- CSV par Go (BOM, `;`, apostrophe devant les formules) ;
+- PDF par le worker (identifiant seul sur Redis, contenu par réseau privé) ;
+- chaque génération et chaque téléchargement de PDF sont audités.
+
+Aucune consultation candidat, notification ni mise en production dans cette phase.

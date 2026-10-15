@@ -24,6 +24,7 @@ import (
 	"ifri-admissions/services/api/internal/modules/drafts"
 	"ifri-admissions/services/api/internal/modules/references"
 	"ifri-admissions/services/api/internal/modules/review"
+	"ifri-admissions/services/api/internal/modules/selection"
 	"ifri-admissions/services/api/internal/modules/submissions"
 	"ifri-admissions/services/api/internal/platform/database"
 	"ifri-admissions/services/api/internal/platform/httpserver"
@@ -110,6 +111,9 @@ func run(logger *slog.Logger) error {
 	// OCR proof images: separate stream and worker loop, same private listener.
 	reviewService := &review.Service{Pool: pool, Objects: objects, Cache: cache, Logger: logger}
 	reviewService.RegisterInternal(internal, secret)
+	// Ranking exports: PDF rendered by the worker from a payload fetched on this listener.
+	selectionService := &selection.Service{Pool: pool, Objects: objects, Cache: cache, Logger: logger}
+	selectionService.RegisterInternal(internal, secret)
 	internalServer := &http.Server{Addr: net.JoinHostPort(c.Host, "8081"), Handler: internal, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 30 * time.Second, WriteTimeout: 35 * time.Second}
 	internalListener, err := net.Listen("tcp", internalServer.Addr)
 	if err != nil {
@@ -130,6 +134,7 @@ func run(logger *slog.Logger) error {
 	}
 	adminService.Pool = pool
 	go reviewService.DispatchProofs(ctx)
+	go selectionService.DispatchExports(ctx)
 	handler := httpserver.New(c.FrontendOrigin, map[string]httpserver.Check{
 		"postgres": pool.Ping,
 		"redis":    func(ctx context.Context) error { return cache.Ping(ctx).Err() },
@@ -140,7 +145,9 @@ func run(logger *slog.Logger) error {
 		drafts.Register(mux, drafts.NewRepository(pool), c.DraftSessionTTL, c.FrontendOrigin, c.Environment == "production", logger)
 		documents.Register(mux, documents.NewService(documents.NewRepository(pool), objects, pdfcheck.QPDF{}, c.DocumentMaxBytes, logger), c.FrontendOrigin, c.Environment == "production", logger)
 		submissions.Register(mux, &submissions.Repository{Pool: pool, Logger: logger}, c.FrontendOrigin, c.Environment == "production", logger)
-		review.Register(admin.Register(mux, adminService, c.FrontendOrigin, c.Environment == "production", logger), reviewService)
+		router := admin.Register(mux, adminService, c.FrontendOrigin, c.Environment == "production", logger)
+		review.Register(router, reviewService)
+		selection.Register(router, selectionService)
 	})
 	server := &http.Server{Addr: net.JoinHostPort(c.Host, c.Port), Handler: handler, ReadHeaderTimeout: 5 * time.Second, ReadTimeout: 70 * time.Second, WriteTimeout: 75 * time.Second, IdleTimeout: 60 * time.Second, MaxHeaderBytes: 1 << 16}
 	listener, err := net.Listen("tcp", server.Addr)

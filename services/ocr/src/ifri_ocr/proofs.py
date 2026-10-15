@@ -7,13 +7,14 @@ they never wait behind candidates' analyses.
 
 import hashlib
 import json
-import logging
 from threading import Event
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
 
 import cv2
 import numpy as np
+
+from ifri_ocr.streams import serve_stream
 
 PROOF_STREAM = "ifri:ocr:proofs:v1"
 PROOF_GROUP = "ifri-ocr-proofs-v1"
@@ -153,36 +154,13 @@ def process_proof(job: dict, api: ProofClient) -> str:
 
 def serve_proofs(client, api: ProofClient, consumer: str, stop: Event) -> None:
     """Dedicated loop on the proof stream (own Redis connection, own consumer group)."""
-    logger = logging.getLogger("ifri_ocr")
-    try:
-        client.xgroup_create(PROOF_STREAM, PROOF_GROUP, id="0", mkstream=True)
-    except Exception as error:  # noqa: BLE001 - redis raises ResponseError for BUSYGROUP
-        if "BUSYGROUP" not in str(error):
-            raise
-    while not stop.is_set():
-        try:
-            reclaimed = client.xautoclaim(
-                PROOF_STREAM, PROOF_GROUP, consumer, min_idle_time=120000, start_id="0-0", count=1
-            )
-            messages = reclaimed[1]
-            if not messages:
-                batches = client.xreadgroup(
-                    PROOF_GROUP, consumer, {PROOF_STREAM: ">"}, count=1, block=1000
-                )
-                messages = batches[0][1] if batches else []
-            for message_id, fields in messages:
-                job = json.loads(fields["job"])
-                outcome = process_proof(job, api)
-                client.xack(PROOF_STREAM, PROOF_GROUP, message_id)
-                logger.info(
-                    "Proof job handled",
-                    extra={"proof_id": job.get("proofId"), "outcome": outcome},
-                )
-        except (RuntimeError, OSError, ValueError, KeyError) as error:
-            logger.error(
-                "Proof transport failed; job retained", extra={"failure_code": str(error)[:40]}
-            )
-            stop.wait(2)
-        except Exception:  # noqa: BLE001 - keep the analysis loop alive whatever happens here
-            logger.error("Proof loop error; retrying")
-            stop.wait(2)
+    serve_stream(
+        client,
+        PROOF_STREAM,
+        PROOF_GROUP,
+        consumer,
+        stop,
+        lambda job: process_proof(job, api),
+        "Proof",
+        "proof_id",
+    )

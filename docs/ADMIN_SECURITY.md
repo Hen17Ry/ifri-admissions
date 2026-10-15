@@ -122,10 +122,10 @@ Rôles IFRI depuis la phase 8 (ADR 109, organigramme dans ADMIN_REVIEW) ; **un s
 | Rôle | Libellé | Permissions |
 |---|---|---|
 | SUPER_ADMIN | Administrateur technique | `dashboard.view`, `accounts.read`, `accounts.manage`, `audit.read` — aucun accès aux dossiers |
-| REVIEWER | Agent du secrétariat exécutif | `dashboard.view`, `applications.read`, `review.claim`, `review.decide`, `corrections.propose`, `ranking.read` |
-| REVIEW_LEAD | Responsable du secrétariat exécutif | celles de l'agent + `review.reassign`, `review.revert` |
-| DEPUTY_DIRECTOR | Directeur adjoint | `dashboard.view`, `applications.read`, `corrections.decide`, `ranking.read` |
-| DIRECTOR | Directeur | `dashboard.view`, `applications.read`, `audit.read` (lecture seule), `ranking.read`, `selection.validate` |
+| REVIEWER | Agent du secrétariat exécutif | `dashboard.view`, `applications.read`, `review.claim`, `review.decide`, `corrections.propose` |
+| REVIEW_LEAD | Responsable du secrétariat exécutif | celles de l'agent + `review.reassign`, `review.revert`, `ranking.read` |
+| DEPUTY_DIRECTOR | Directeur adjoint | `dashboard.view`, `applications.read`, `corrections.decide`, `ranking.read`, `selection.manage`, `selection.export` |
+| DIRECTOR | Directeur | `dashboard.view`, `applications.read`, `audit.read` (lecture seule), `ranking.read`, `ranking.configure`, `selection.validate`, `selection.export` |
 
 - `SELECTION_MANAGER` et `AUDITOR` (phase 7) sont retirés : révoqués par la migration 00008, historique conservé, nouvelle attribution refusée.
 - **Périmètre** : le mécanisme par filière (`Principal.CanFor`, `Principal.Scope`) est conservé mais aucun rôle IFRI n'est limité à une filière ; l'interface n'en propose plus.

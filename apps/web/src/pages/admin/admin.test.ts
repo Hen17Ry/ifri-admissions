@@ -123,6 +123,12 @@ function makeRouter() {
         component: stub,
         meta: { admin: 'corrections.decide' },
       },
+      {
+        path: '/admin/classement',
+        name: 'admin-selection',
+        component: stub,
+        meta: { admin: 'ranking.read' },
+      },
     ],
   })
   router.beforeEach(adminGuard)
@@ -500,7 +506,6 @@ describe('own account and navigation', () => {
           'applications.read',
           'corrections.propose',
           'dashboard.view',
-          'ranking.read',
           'review.claim',
           'review.decide',
         ],
@@ -511,6 +516,7 @@ describe('own account and navigation', () => {
     expect(nav.text()).toContain('Tableau de bord')
     expect(nav.text()).toContain('Candidatures')
     expect(nav.text()).not.toContain('Corrections à décider')
+    expect(nav.text()).not.toContain('Classement')
     expect(nav.text()).not.toContain('Comptes')
     expect(nav.text()).not.toContain('Journal')
     expect(nav.find('[aria-current="page"]').text()).toContain('Tableau de bord')

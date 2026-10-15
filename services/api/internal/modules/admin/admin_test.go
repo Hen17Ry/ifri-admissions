@@ -191,6 +191,18 @@ func TestRolePermissionsAndScope(t *testing.T) {
 		{"director changes nothing", director, PermReviewDecide, false},
 		{"director proposes nothing", director, PermCorrectionsPropose, false},
 		{"director manages no account", director, PermAccountsManage, false},
+		// Phase 9: ranking and selection.
+		{"director sets seats and threshold", director, PermRankingConfigure, true},
+		{"director exports", director, PermSelectionExport, true},
+		{"director records no withdrawal", director, PermSelectionManage, false},
+		{"deputy records withdrawals and promotions", deputy, PermSelectionManage, true},
+		{"deputy exports", deputy, PermSelectionExport, true},
+		{"deputy never freezes", deputy, PermSelectionValidate, false},
+		{"deputy never sets seats", deputy, PermRankingConfigure, false},
+		{"lead reads the provisional ranking", lead, PermRankingRead, true},
+		{"lead exports nothing", lead, PermSelectionExport, false},
+		{"agent does not read the ranking", agent, PermRankingRead, false},
+		{"super admin does not read the ranking", superAdmin, PermRankingRead, false},
 	} {
 		if tc.p.Can(tc.perm) != tc.want {
 			t.Fatal(tc.name)

@@ -33,7 +33,6 @@ const agentPermissions = [
   'applications.read',
   'corrections.propose',
   'dashboard.view',
-  'ranking.read',
   'review.claim',
   'review.decide',
 ]
@@ -262,6 +261,12 @@ async function open(page: Component, path: string, current: AdminSession) {
         name: 'admin-corrections',
         component: stub,
         meta: { admin: 'corrections.decide' },
+      },
+      {
+        path: '/admin/classement',
+        name: 'admin-selection',
+        component: stub,
+        meta: { admin: 'ranking.read' },
       },
     ],
   })

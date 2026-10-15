@@ -24,7 +24,7 @@ S3 précède la transaction DB. Échec storage ou DB certain : tentative de supp
 
 ## Stockage et accès
 
-Port Go Objects (Put/Get/Delete) indépendant du fournisseur ; SDK MinIO uniquement dans l’adaptateur S3. MinIO local, AWS S3/R2/Garage possibles avec endpoint, région et credentials compatibles. Initialiseur local crée un utilisateur API distinct du compte racine ; policy limitée à GetObject/PutObject/DeleteObject sous applications/* du bucket privé. Aucune ACL publique.
+Port Go Objects (Put/Get/Delete) indépendant du fournisseur ; SDK MinIO uniquement dans l’adaptateur S3. MinIO local, AWS S3/R2/Garage possibles avec endpoint, région et credentials compatibles. Initialiseur local crée un utilisateur API distinct du compte racine ; policy limitée à GetObject/PutObject/DeleteObject sous applications/* du bucket privé (et selection/* depuis la phase 9, pour les exports PDF des listes, ADR 130). Aucune ACL publique.
 
 Prévisualisation via proxy Go, après session → candidature → document courant. Aucun endpoint UUID public ni URL présignée. Content-Type application/pdf, nosniff, no-store, Content-Disposition inline ; route download impose attachment. CSP sandbox et Referrer-Policy no-referrer. ServeContent permet Range pour le lecteur PDF natif ; ouverture dans un nouvel onglet, sans moteur PDF frontend.
 

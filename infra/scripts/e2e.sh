@@ -32,8 +32,9 @@ cleanup # leftovers of an interrupted run
 compose up -d --no-build --wait --wait-timeout 300 postgres redis minio minio-init api ocr-worker
 compose exec -T api db up
 compose exec -T api db seed
-# About 5,000 synthetic submitted applications (no personal data) for the back-office list.
-compose exec -T api api dev synthetic-applications --count "${E2E_SYNTHETIC_COUNT:-5000}" --confirm
+# About 5,000 synthetic submitted applications (no personal data) for the back-office list. The
+# IA program is left out: selection.spec.ts ranks and freezes it with a handful of dossiers.
+compose exec -T api api dev synthetic-applications --count "${E2E_SYNTHETIC_COUNT:-5000}" --exclude-program IA --confirm
 
 if [ -n "${E2E_MEMORY_REPORT:-}" ]; then
   : >"$E2E_MEMORY_REPORT"

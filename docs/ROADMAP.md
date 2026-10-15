@@ -15,7 +15,7 @@
 | **6** | **Moyenne pondérée, soumission atomique, numéro, verrouillage** | **Fait le 14 octobre 2026** (voir PHASE6_VALIDATION) |
 | **7** | **Authentification admin, RBAC, journal d'audit** | **Fait le 14 octobre 2026** (voir PHASE7_VALIDATION) |
 | **8** | **Back-office : liste, filtres, dossier, preuves OCR, vérification, corrections** | **Fait le 14 octobre 2026** (voir PHASE8_VALIDATION) |
-| 9 | Classement par filière, quotas, sélection, liste d'attente, exports | À faire |
+| **9** | **Classement par filière, places, gel, sélection, liste d'attente, exports** | **Fait le 14 octobre 2026** (voir PHASE9_VALIDATION) |
 | 10 | Mise en production : CI, HTTPS/Nginx, sauvegardes, antivirus, rétention, observabilité | À faire |
 
 ## Questions à faire trancher par l'IFRI
@@ -24,8 +24,8 @@ Elles bloquent la mise en production, pas le développement. Chaque règle est i
 
 1. **Écrit ou oral** : quand une matière (Anglais, Français) apparaît à l'écrit du 1er groupe et à l'oral du 2e groupe, quelle note retenir ? Hypothèse actuelle : écrit du 1er groupe.
 2. **Matrice des matières** : confirmer officiellement la matrice qualification × filière (série A, B, F… non couvertes ?).
-3. **Arrondi et égalités** : précision de la moyenne et règle de départage en cas d'égalité. (Constat sur un relevé : l'Office du Bac imprime une moyenne tronquée à 2 décimales ; ce n'est pas la règle IFRI.)
-4. **Quotas** : nombre de places par filière et par campagne.
+3. **Critère mathématique absent** : à moyenne exactement égale, la note de mathématiques départage. Quand un candidat du groupe d'égalité n'a pas de matière mathématique dans sa grille (DT/EAP, par exemple), une comparaison deux à deux tourne en rond (exemple A/B/C de RANKING_SELECTION). Option 1, appliquée aujourd'hui : le critère est sauté pour tout le groupe, qui est départagé par la date de soumission puis le numéro. Option 2 : une règle alternative que proposerait l'IFRI (par exemple classer après les autres, dans le groupe, les candidats sans note de mathématiques, ou retenir une autre matière).
+4. **Fraude découverte après le gel** : aucun dégel n'est possible une fois le classement validé. Que faire si une fraude est découverte ensuite (désistement motivé du candidat concerné, nouveau classement, autre) et qui en décide ?
 5. **Formats DT** : obtenir des relevés DT réels (IMI, DWM, EAP, PM) anonymisés ; leur mise en page est encore inconnue.
 6. **Motifs de rejet** : valider ou ajuster la liste provisoire des motifs de rejet d'un dossier (document illisible, document invalide ou erroné, identité non concordante, relevé incohérent, qualification non éligible, candidature en double, suspicion de fraude, autre motif). Ils sont définis à un seul endroit, avec leurs libellés (table `review_rejection_reasons`, ADR 112).
 7. **Dates de campagne** et politique de conservation des documents après la campagne.
@@ -80,8 +80,16 @@ Elles bloquent la mise en production, pas le développement. Chaque règle est i
 - [x] Audit de chaque consultation (dossier, document, preuve) et de chaque action.
 - [x] Tests Go (matrice, incompatibilités de rôles, concurrence, quatre yeux, moyenne exacte, audit, doublons, performance), Vitest, Playwright (deux agents et un DA, aperçu PDF, preuve OCR) ; `make check` vert ; ADMIN_REVIEW et PHASE8_VALIDATION.
 
-## Phases 9 et 10 — périmètre
+## Phase 9 — critères de sortie (14 octobre 2026, voir PHASE9_VALIDATION)
 
-**9. Classement et sélection** : classement par filière des seuls dossiers `VALIDATED` et admissibles, sur la **moyenne effective** de la revue (ADR 114 : fraction exacte après corrections approuvées ; colonne à 30 décimales, puis égalité tranchée par produit en croix, ADR 086), départage selon la règle IFRI, proposition automatique selon les quotas, validation par le Directeur (`selection.validate`), liste d'attente, gel du classement par `ranking_freezes` (crochet posé en phase 8, ADR 115), exports CSV/PDF.
+- [x] Classement des seuls dossiers validés : moyenne effective par produit en croix, mathématiques (par code, règle par groupe d'égalité), date, numéro ; critère décisif enregistré et affiché, mathématiques sautées signalées.
+- [x] Places (1 à 10 000, colonne de la phase 2) et moyenne minimale facultative saisies par le Directeur jusqu'au gel, auditées ; Non classé sans rang.
+- [x] Classement provisoire à la volée, ligne des places, indicateurs de blocage ; lecture par le Directeur, le Directeur adjoint et le responsable du secrétariat.
+- [x] Gel et validation par le Directeur : préconditions vérifiées sous verrous et en base, snapshot immuable, `ranking_freezes` qui bloque revue et corrections, aucun dégel.
+- [x] Désistements et promotions par le Directeur adjoint, en ajout seul, strictement dans l'ordre, avec place libre et version de liste.
+- [x] Exports publics et internes, CSV (Go) et PDF (worker), versionnés et audités ; aucune moyenne dans la version publique.
+- [x] Tests : critères de départage, bornes, préconditions, immuabilité, promotions, permissions, exports, audit, concurrence gel / retour arrière ; Vitest ; Playwright ; `make check` vert ; RANKING_SELECTION et PHASE9_VALIDATION.
+
+## Phase 10 — périmètre
 
 **10. Production** : CI GitHub (lint, tests, migrations, build des images), Nginx + HTTPS, sauvegardes PostgreSQL et S3 testées par restauration, analyse antivirus et quarantaine des uploads, nettoyage des objets orphelins, rétention, logs structurés et métriques, audit d'accessibilité, test de charge sur la période de clôture, plan de déploiement.

@@ -37,13 +37,18 @@ func (s *Service) lock(ctx context.Context, tx pgx.Tx, actor admin.Principal, id
 		return l, ErrNotFound
 	}
 	var assignee *string
-	err := tx.QueryRow(ctx, `SELECT r.status,r.assignee_id::text,cp.program_id::text,r.version,ranking_frozen(r.campaign_program_id)
+	err := tx.QueryRow(ctx, `SELECT r.status,r.assignee_id::text,cp.program_id::text,r.version
 	 FROM application_reviews r JOIN campaign_programs cp ON cp.id=r.campaign_program_id WHERE r.application_id=$1::uuid FOR UPDATE OF r`, id).
-		Scan(&l.status, &assignee, &l.program, &l.version, &l.frozen)
+		Scan(&l.status, &assignee, &l.program, &l.version)
 	if errors.Is(err, pgx.ErrNoRows) || (err == nil && !actor.CanFor(perm, l.program)) {
 		return l, ErrNotFound
 	}
 	if err != nil {
+		return l, err
+	}
+	// A freeze may have committed while this transaction waited for the row: read it with a
+	// fresh statement snapshot (the locking statement kept the one taken before the wait).
+	if err = tx.QueryRow(ctx, `SELECT ranking_frozen(campaign_program_id) FROM application_reviews WHERE application_id=$1::uuid`, id).Scan(&l.frozen); err != nil {
 		return l, err
 	}
 	if assignee != nil {

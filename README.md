@@ -322,3 +322,18 @@ docker compose exec api api dev synthetic-applications --count 5000 --confirm
 ```
 
 `make e2e` génère d’abord 5 000 dossiers synthétiques sur la stack jetable (`E2E_SYNTHETIC_COUNT` pour un autre nombre).
+
+## Phase 9 — classement et sélection
+
+Écran `/admin/classement` :
+- classement provisoire à la volée ;
+- places et moyenne minimale saisies par le Directeur, puis gel et validation ;
+- désistements et promotions par le Directeur adjoint ;
+- exports publics et internes en CSV et PDF.
+
+Contrat : docs/RANKING_SELECTION.md. Pour essayer en développement (irréversible dans la base de dev : la campagne reste close jusqu'à la recréation du volume) :
+
+```sh
+docker compose exec api api dev synthetic-applications --count 6 --program IA --confirm
+docker compose exec api api dev close-campaign --confirm
+```

@@ -194,3 +194,18 @@ Diagnostic privé : texte brut des cinq cellules du tableau uniquement, valeurs 
 - **Worker** : seconde boucle `ifri_ocr.proofs` (file `ifri:ocr:proofs:v1`, sa propre connexion Redis), indépendante de la boucle d'analyse ; rendu PyMuPDF + OpenCV, aucune décision métier.
 - **CLI** : `api dev synthetic-applications` (développement et test seulement).
 - **Vue** : `features/review` (API, `ProofViewer`), pages `AdminApplicationsPage`, `AdminApplicationPage`, `AdminCorrectionsPage`, tableau de bord réécrit, `RoleSelector` (un rôle par compte). Contrat : ADMIN_REVIEW.
+
+## Phase 9 — module `selection`
+
+- **`internal/modules/selection`** :
+  - `rank.go`, pur et sans base : comparateur exact (produit en croix), groupes d'égalité et critère mathématique, seuil, décisions, états après désistements et promotions, première personne en attente, places libres ;
+  - `service.go` : offres, classement provisoire à la volée, réglages, gel transactionnel, événements de sélection ;
+  - `exports.go` : document public ou interne, CSV, demandes PDF, routes internes du worker, boucle de redistribution ;
+  - `http.go` : routes du registre admin, chacune avec sa permission.
+- **Revue** : la lecture du gel a lieu après la prise du verrou de la ligne de revue (ADR 127).
+- **Worker** :
+  - troisième boucle `ifri_ocr.exports`, sur la file `ifri:exports:v1` avec sa propre connexion Redis ;
+  - la boucle commune `ifri_ocr.streams` sert aux preuves et aux exports ;
+  - mise en page PyMuPDF avec DejaVu Sans (paquet `fonts-dejavu-core`, vérifié au démarrage) ; aucune décision métier.
+- **CLI** : `api dev synthetic-applications --program/--exclude-program` et `api dev close-campaign` (développement et test seulement).
+- **Vue** : `features/selection` (API, libellés) et page `AdminSelectionPage` (`/admin/classement`). Contrat : RANKING_SELECTION.
